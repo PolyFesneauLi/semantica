@@ -97,7 +97,11 @@ python -m semantica.explorer
 ```powershell
 semantica extract input/alice_semantica.txt --method pattern
 semantica extract input/acme_contract.txt --provider deepseek --model deepseek-chat
+semantica extract input/odyssey/Full_Odyssey_Title.txt
+semantica extract input/odyssey/Synopsis_Odyssey_Title.txt
 ```
+
+`input/odyssey/Full_Odyssey_Title.txt` 是整页拼接稿；LLM 抽取若超长，改传单个 `{section}_Odyssey_Title.txt`（例如 `Synopsis_Odyssey_Title.txt`）。
 
 ---
 
@@ -161,6 +165,10 @@ semantica explorer stop
 input/                          # 样例 / 待抽取纯文本
   alice_semantica.txt
   acme_contract.txt
+  odyssey/
+    Full_Odyssey_Title.txt      # Odyssey 维基单页拼接稿
+    {section}_Odyssey_Title.txt # 按 H2 切分的章节
+    SOURCE.md                   # URL / 许可 / 抓取日期
 demos/smoke_deepseek_graph.json # extract --graph-output 默认产物
 .env                            # 密钥 + CLI/Explorer 默认参数
 ```
