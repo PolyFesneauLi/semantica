@@ -23,25 +23,56 @@ _err = Console(stderr=True)
 
 def main(argv=None):
     """CLI entry point for the Knowledge Explorer server."""
+    # Reconfigure stdout/stderr to UTF-8 on Windows before Rich captures them.
+    # Avoids UnicodeEncodeError on box-drawing / checkmark characters under GBK.
+    if sys.platform == "win32":
+        if sys.stdout is not None and hasattr(sys.stdout, "reconfigure"):
+            sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        if sys.stderr is not None and hasattr(sys.stderr, "reconfigure"):
+            sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
+    # Load project .env so SEMANTICA_EXPLORER_* defaults apply.
+    try:
+        from dotenv import load_dotenv
+        from pathlib import Path as _Path
+
+        env_path = _Path.cwd() / ".env"
+        if env_path.is_file():
+            load_dotenv(env_path, override=False)
+    except ImportError:
+        pass
+
+    import os
+
+    default_graph = (
+        os.environ.get("SEMANTICA_EXPLORER_GRAPH")
+        or os.environ.get("SEMANTICA_EXTRACT_GRAPH_OUTPUT")
+        or None
+    )
+    default_port = int(os.environ.get("SEMANTICA_EXPLORER_PORT") or "8000")
+    default_host = os.environ.get("SEMANTICA_EXPLORER_HOST") or "127.0.0.1"
+
     parser = argparse.ArgumentParser(
         prog="semantica-explorer",
         description="Semantica Knowledge Explorer — interactive dashboard for KG exploration",
     )
     parser.add_argument(
         "--graph", "-g",
-        required=True,
-        help="Path to a ContextGraph JSON file to load.",
+        default=default_graph,
+        required=default_graph is None,
+        help="Path to a ContextGraph JSON file to load "
+             "(env: SEMANTICA_EXPLORER_GRAPH).",
     )
     parser.add_argument(
         "--port", "-p",
         type=int,
-        default=8000,
-        help="Port to bind the server to (default: 8000).",
+        default=default_port,
+        help=f"Port to bind the server to (default: {default_port}).",
     )
     parser.add_argument(
         "--host",
-        default="127.0.0.1",
-        help="Host to bind the server to (default: 127.0.0.1).",
+        default=default_host,
+        help=f"Host to bind the server to (default: {default_host}).",
     )
     parser.add_argument(
         "--no-browser",

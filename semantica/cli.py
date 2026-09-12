@@ -559,6 +559,7 @@ def main(
 ) -> None:
     """Semantica - Semantic Layer & Knowledge Engineering Framework"""
     try:
+        _load_dotenv_files()
         config = _build_runtime_config(config_path=config_path, log_level=log_level)
         # Always initialize logging so file handlers are installed; --quiet only
         # suppresses console output (controlled via _ok/_dry checks).
@@ -919,8 +920,12 @@ def doctor(cli_ctx: CLIContext, local_json: bool, deep_embeddings: bool) -> None
         ))
 
         # LLM provider keys
-        for provider, var in [("OpenAI", "OPENAI_API_KEY"), ("Anthropic", "ANTHROPIC_API_KEY"),
-                               ("Groq", "GROQ_API_KEY")]:
+        for provider, var in [
+            ("OpenAI", "OPENAI_API_KEY"),
+            ("Anthropic", "ANTHROPIC_API_KEY"),
+            ("Groq", "GROQ_API_KEY"),
+            ("DeepSeek", "DEEPSEEK_API_KEY"),
+        ]:
             val = os.environ.get(var, "")
             if val:
                 checks.append((provider, "ok", f"{var} set ({val[:8]}…)", None))
@@ -1299,6 +1304,172 @@ def _serialize_extract_result(obj: Any) -> Any:
     if isinstance(obj, dict):
         return {k: _serialize_extract_result(v) for k, v in obj.items()}
     return obj
+
+
+def _load_dotenv_files() -> None:
+    """Load `.env` from the current working directory if present.
+
+    Existing process environment variables win (`override=False`) so CI and
+    explicit exports are not clobbered. Missing python-dotenv is a no-op.
+    """
+    try:
+        from dotenv import load_dotenv
+    except ImportError:
+        return
+    env_path = Path.cwd() / ".env"
+    if env_path.is_file():
+        load_dotenv(env_path, override=False)
+
+
+def _slug_node_id(text: str, label: str, used: Dict[str, str]) -> str:
+    """Build a stable, unique ContextGraph node id from entity text + label."""
+    import re
+
+    base = re.sub(r"[^a-zA-Z0-9]+", "_", (text or "").strip()).strip("_").lower()
+    label_part = re.sub(r"[^a-zA-Z0-9]+", "_", (label or "entity").strip()).strip("_").lower()
+    if not base:
+        base = "node"
+    candidate = f"{label_part}_{base}" if label_part else base
+    if candidate not in used:
+        used[candidate] = text
+        return candidate
+    # Collision on id but same text → reuse; different text → suffix.
+    if used[candidate] == text:
+        return candidate
+    n = 2
+    while f"{candidate}_{n}" in used:
+        n += 1
+    final = f"{candidate}_{n}"
+    used[final] = text
+    return final
+
+
+def _entity_fields(entity: Any) -> Tuple[str, str, float]:
+    """Normalize Entity dataclass / dict / string into (text, label, confidence)."""
+    if is_dataclass(entity) and not isinstance(entity, type):
+        text = str(getattr(entity, "text", "") or "")
+        label = str(getattr(entity, "label", "ENTITY") or "ENTITY")
+        conf = float(getattr(entity, "confidence", 1.0) or 1.0)
+        return text, label, conf
+    if isinstance(entity, dict):
+        text = str(entity.get("text") or entity.get("name") or "")
+        label = str(entity.get("label") or entity.get("type") or "ENTITY")
+        conf = float(entity.get("confidence", 1.0) or 1.0)
+        return text, label, conf
+    text = str(entity)
+    return text, "ENTITY", 1.0
+
+
+def _build_context_graph_from_extraction(result: Any, mode: str) -> Dict[str, Any]:
+    """Convert extract results into a ContextGraph JSON payload for explorer.
+
+    Builds the on-disk format directly (no ``ContextGraph`` import) so the CLI
+    path stays lightweight and does not pull LLM provider imports via
+    ``semantica.context`` package init.
+    """
+    import uuid
+
+    nodes: List[Dict[str, Any]] = []
+    edges: List[Dict[str, Any]] = []
+    used_ids: Dict[str, str] = {}
+    id_by_key: Dict[Tuple[str, str], str] = {}
+
+    def _ensure_node(entity: Any) -> Optional[str]:
+        text, label, conf = _entity_fields(entity)
+        if not text:
+            return None
+        key = (text.lower(), label.upper())
+        if key in id_by_key:
+            return id_by_key[key]
+        node_id = _slug_node_id(text, label, used_ids)
+        id_by_key[key] = node_id
+        nodes.append(
+            {
+                "id": node_id,
+                "type": label,
+                "properties": {"content": text, "confidence": conf},
+            }
+        )
+        return node_id
+
+    entities: List[Any] = []
+    relations: List[Any] = []
+    triplets: List[Any] = []
+
+    if mode == "ner":
+        entities = result if isinstance(result, list) else []
+    elif mode == "relations":
+        relations = result if isinstance(result, list) else []
+    elif mode == "triplets":
+        triplets = result if isinstance(result, list) else []
+    elif mode == "all" and isinstance(result, dict):
+        entities = result.get("entities") or []
+        relations = result.get("relations") or []
+    else:
+        raise click.ClickException(
+            f"--graph-output is not supported for mode '{mode}'. "
+            "Use ner, relations, triplets, or all."
+        )
+
+    for entity in entities:
+        _ensure_node(entity)
+
+    for rel in relations:
+        if is_dataclass(rel) and not isinstance(rel, type):
+            subj, pred, obj = rel.subject, rel.predicate, rel.object
+            conf = float(getattr(rel, "confidence", 1.0) or 1.0)
+        elif isinstance(rel, dict):
+            subj, pred, obj = rel.get("subject"), rel.get("predicate"), rel.get("object")
+            conf = float(rel.get("confidence", 1.0) or 1.0)
+        else:
+            continue
+        sid = _ensure_node(subj)
+        oid = _ensure_node(obj)
+        if sid and oid and sid != oid:
+            edge_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"{sid}|{pred}|{oid}"))
+            edges.append(
+                {
+                    "id": edge_id,
+                    "familyId": edge_id,
+                    "source_id": sid,
+                    "target_id": oid,
+                    "type": str(pred or "related_to"),
+                    "weight": conf,
+                    "properties": {},
+                }
+            )
+
+    for trip in triplets:
+        if is_dataclass(trip) and not isinstance(trip, type):
+            subj, pred, obj = trip.subject, trip.predicate, trip.object
+            conf = float(getattr(trip, "confidence", 1.0) or 1.0)
+        elif isinstance(trip, dict):
+            subj, pred, obj = trip.get("subject"), trip.get("predicate"), trip.get("object")
+            conf = float(trip.get("confidence", 1.0) or 1.0)
+        else:
+            continue
+        sid = _ensure_node({"text": str(subj), "label": "ENTITY"})
+        oid = _ensure_node({"text": str(obj), "label": "ENTITY"})
+        if sid and oid and sid != oid:
+            edge_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"{sid}|{pred}|{oid}"))
+            edges.append(
+                {
+                    "id": edge_id,
+                    "familyId": edge_id,
+                    "source_id": sid,
+                    "target_id": oid,
+                    "type": str(pred or "related_to"),
+                    "weight": conf,
+                    "properties": {},
+                }
+            )
+
+    return {
+        "graph_id": str(uuid.uuid4()),
+        "nodes": nodes,
+        "edges": edges,
+        "links": [],
+    }
 
 
 # ─── Additional kg subcommands ────────────────────────────────────────────────
@@ -1739,43 +1910,80 @@ def normalize(cli_ctx: CLIContext, input_text: str, mode: str, domain: str,
 
 
 @main.command()
-@click.argument("input_path")
+@click.argument("input_path", required=False, default=None)
 @click.option("--mode",
               type=click.Choice(["ner", "relations", "triplets", "events", "coreference", "all"]),
+              envvar="SEMANTICA_EXTRACT_MODE",
               default="all", show_default=True)
 @click.option("--method", type=click.Choice(["pattern", "ml", "llm"]),
+              envvar="SEMANTICA_EXTRACT_METHOD",
               default="ml", show_default=True)
-@click.option("--model", default=None, help="LLM model when using --method llm.")
+@click.option("--provider",
+              type=click.Choice(
+                  ["openai", "anthropic", "groq", "deepseek", "gemini", "ollama", "novita"],
+                  case_sensitive=False,
+              ),
+              envvar="SEMANTICA_EXTRACT_PROVIDER",
+              default=None,
+              help="LLM provider when using --method llm "
+                   "(env: SEMANTICA_EXTRACT_PROVIDER; reads <PROVIDER>_API_KEY).")
+@click.option("--model", default=None, envvar="SEMANTICA_EXTRACT_MODEL",
+              help="LLM model when using --method llm (env: SEMANTICA_EXTRACT_MODEL).")
 @click.option("--confidence", default=0.5, type=float, show_default=True,
+              envvar="SEMANTICA_EXTRACT_CONFIDENCE",
               help="Minimum confidence 0.0-1.0.")
 @click.option("--temporal", is_flag=True, default=False, help="Also extract temporal bounds.")
 @click.option("--format", "fmt",
               type=click.Choice(["json", "yaml", "table", "rdf"]),
+              envvar="SEMANTICA_EXTRACT_FORMAT",
               default="json", show_default=True)
-@click.option("--output", default=None, type=click.Path())
+@click.option("--output", default=None, type=click.Path(),
+              envvar="SEMANTICA_EXTRACT_OUTPUT",
+              help="Write raw extraction JSON/YAML to this path.")
+@click.option("--graph-output", "graph_output", default=None, type=click.Path(),
+              envvar="SEMANTICA_EXTRACT_GRAPH_OUTPUT",
+              help="Write a ContextGraph JSON for semantica-explorer "
+                   "(env: SEMANTICA_EXTRACT_GRAPH_OUTPUT).")
 @click.option("--json", "local_json", is_flag=True, default=False)
 @click.pass_obj
 def extract(
-    cli_ctx: CLIContext, input_path: str, mode: str, method: str,
-    model: Optional[str], confidence: float, temporal: bool,
-    fmt: str, output: Optional[str], local_json: bool,
+    cli_ctx: CLIContext, input_path: Optional[str], mode: str, method: str,
+    provider: Optional[str], model: Optional[str], confidence: float,
+    temporal: bool, fmt: str, output: Optional[str], graph_output: Optional[str],
+    local_json: bool,
 ) -> None:
     """Run extraction (NER, relations, triplets, events) on text or files.
 
+    Defaults come from ``.env`` / process env (``SEMANTICA_EXTRACT_*``).
+    Pass only values you want to override.
+
     \b
     Examples:
-      semantica extract "Alice signed the contract with Acme Corp."
-      semantica extract report.pdf --mode triplets --method llm --model claude-sonnet-4-6
+      semantica extract
+      semantica extract input/alice_semantica.txt
+      semantica extract input/acme_contract.txt
+      semantica extract report.pdf --mode triplets --method llm --provider anthropic
       cat text.txt | semantica extract - --mode relations
     """
     cli_ctx = _require_ctx(cli_ctx)
 
     def _action() -> None:
-        if input_path == "-":
+        resolved_input = input_path or os.environ.get("SEMANTICA_EXTRACT_INPUT") or ""
+        resolved_input = resolved_input.strip()
+        if not resolved_input:
+            raise click.ClickException(
+                "Provide INPUT_PATH or set SEMANTICA_EXTRACT_INPUT in .env."
+            )
+        if method == "llm" and not provider:
+            raise click.ClickException(
+                "--method llm requires --provider or SEMANTICA_EXTRACT_PROVIDER "
+                "(e.g. deepseek)."
+            )
+        if resolved_input == "-":
             text = sys.stdin.read()
         else:
-            p = Path(input_path)
-            text = p.read_text(encoding="utf-8") if p.exists() else input_path
+            p = Path(resolved_input)
+            text = p.read_text(encoding="utf-8") if p.exists() else resolved_input
         try:
             from .semantic_extract import (
                 NERExtractor,
@@ -1787,6 +1995,8 @@ def extract(
             extractor_config: Dict[str, Any] = {"min_confidence": confidence}
             if model:
                 extractor_config["llm_model"] = model
+            if provider:
+                extractor_config["provider"] = provider.lower()
 
             def _run_extraction() -> Any:
                 if mode == "triplets":
@@ -1807,21 +2017,46 @@ def extract(
                 elif mode == "events":
                     extractor = EventDetector(method=method, **extractor_config)
                     return extractor.extract(text)
+                elif mode == "all":
+                    ner = NERExtractor(method=method, **extractor_config)
+                    entities = ner.extract(text)
+                    rel = RelationExtractor(
+                        method=method, confidence_threshold=confidence, **extractor_config
+                    )
+                    relations = rel.extract(text, entities=entities)
+                    return {"entities": entities, "relations": relations}
                 else:
                     raise click.ClickException(
                         f"Extraction mode '{mode}' is not yet wired to a runtime extractor."
                     )
 
+            status_label = f"{mode}/{method}"
+            if provider:
+                status_label += f"/{provider}"
             if cli_ctx.quiet or cli_ctx.json_output:
                 result = _run_extraction()
             else:
                 with console.status(
-                    f"[{_DIM}]Running {mode} extraction ({method})…[/{_DIM}]",
+                    f"[{_DIM}]Running {status_label} extraction…[/{_DIM}]",
                     spinner="dots",
                 ):
                     result = _run_extraction()
         except ImportError as exc:
             raise click.ClickException(f"Extract module not available: {exc}") from exc
+
+        if graph_output:
+            graph_payload = _build_context_graph_from_extraction(result, mode)
+            Path(graph_output).write_text(
+                json.dumps(graph_payload, indent=2, default=str),
+                encoding="utf-8",
+            )
+            _ok(
+                cli_ctx,
+                f"Wrote ContextGraph {graph_output} "
+                f"({len(graph_payload['nodes'])} nodes, "
+                f"{len(graph_payload['edges'])} edges)",
+            )
+
         serialized = _serialize_extract_result(result)
         json_out = _is_json(cli_ctx, local_json) or fmt == "json"
         if json_out:
@@ -4639,31 +4874,61 @@ def explorer(ctx: click.Context) -> None:
 
 
 @explorer.command("start")
-@click.option("--port", default=5173, type=int, show_default=True)
+@click.option("--port", default=None, type=int, envvar="SEMANTICA_EXPLORER_PORT",
+              help="Port (env: SEMANTICA_EXPLORER_PORT, default 8000).")
 @click.option("--api-url", default="http://localhost:8000", show_default=True)
-@click.option("--graph", default=None, type=click.Path(exists=True),
-              help="Optional graph JSON file to preload.")
+@click.option("--graph", default=None, type=click.Path(),
+              envvar="SEMANTICA_EXPLORER_GRAPH",
+              help="ContextGraph JSON to preload "
+                   "(env: SEMANTICA_EXPLORER_GRAPH or SEMANTICA_EXTRACT_GRAPH_OUTPUT).")
 @click.pass_obj
-def explorer_start(cli_ctx: CLIContext, port: int, api_url: str,
+def explorer_start(cli_ctx: CLIContext, port: Optional[int], api_url: str,
                    graph: Optional[str]) -> None:
     """Start the Knowledge Explorer dashboard.
 
     \b
-    Example:
-      semantica explorer start --port 5173 --api-url http://localhost:8000
+    Examples:
+      semantica explorer start
+      semantica explorer start --graph demos/smoke_deepseek_graph.json
     """
     cli_ctx = _require_ctx(cli_ctx)
 
     def _action() -> None:
         import subprocess as sp
-        cmd = [sys.executable, "-m", "semantica.explorer", "--port", str(port)]
-        if graph:
-            cmd += ["--graph", graph]
+
+        resolved_port = port or int(os.environ.get("SEMANTICA_EXPLORER_PORT") or "8000")
+        resolved_graph = (
+            graph
+            or os.environ.get("SEMANTICA_EXPLORER_GRAPH")
+            or os.environ.get("SEMANTICA_EXTRACT_GRAPH_OUTPUT")
+            or ""
+        ).strip()
+        if not resolved_graph:
+            raise click.ClickException(
+                "Provide --graph or set SEMANTICA_EXPLORER_GRAPH / "
+                "SEMANTICA_EXTRACT_GRAPH_OUTPUT in .env."
+            )
+        if not Path(resolved_graph).is_file():
+            raise click.ClickException(f"Graph file not found: {resolved_graph}")
+
+        cmd = [
+            sys.executable,
+            "-m",
+            "semantica.explorer",
+            "--port",
+            str(resolved_port),
+            "--graph",
+            resolved_graph,
+        ]
         env = os.environ.copy()
         env["SEMANTICA_API_URL"] = api_url
         proc = sp.Popen(cmd, env=env)
         _write_pid("explorer", proc.pid)
-        _ok(cli_ctx, f"Explorer started on port {port} using API {api_url} (pid {proc.pid})")
+        _ok(
+            cli_ctx,
+            f"Explorer started on port {resolved_port} "
+            f"graph={resolved_graph} api={api_url} (pid {proc.pid})",
+        )
 
     _run_with_error_handling(_action)
 

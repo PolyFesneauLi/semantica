@@ -1,0 +1,101 @@
+{
+  "graph_id": "d2daa3fd-904a-4692-be4d-10f8398d8735",
+  "nodes": [
+    {
+      "id": "person_alice",
+      "type": "PERSON",
+      "properties": {
+        "content": "Alice",
+        "confidence": 0.95
+      }
+    },
+    {
+      "id": "org_acme_corp",
+      "type": "ORG",
+      "properties": {
+        "content": "Acme Corp",
+        "confidence": 0.95
+      }
+    },
+    {
+      "id": "gpe_new_york",
+      "type": "GPE",
+      "properties": {
+        "content": "New York",
+        "confidence": 0.95
+      }
+    },
+    {
+      "id": "date_march_12_2025",
+      "type": "DATE",
+      "properties": {
+        "content": "March 12, 2025",
+        "confidence": 0.95
+      }
+    },
+    {
+      "id": "gpe_boston",
+      "type": "GPE",
+      "properties": {
+        "content": "Boston",
+        "confidence": 0.95
+      }
+    },
+    {
+      "id": "unknown_over_500_people",
+      "type": "UNKNOWN",
+      "properties": {
+        "content": "over 500 people",
+        "confidence": 0.8
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "045d36ff-b320-500f-bfa1-921fd1dabba4",
+      "familyId": "045d36ff-b320-500f-bfa1-921fd1dabba4",
+      "source_id": "person_alice",
+      "target_id": "org_acme_corp",
+      "type": "signed_contract_with",
+      "weight": 0.95,
+      "properties": {}
+    },
+    {
+      "id": "86b1b3b1-2958-518f-a570-762486dbea32",
+      "familyId": "86b1b3b1-2958-518f-a570-762486dbea32",
+      "source_id": "person_alice",
+      "target_id": "gpe_new_york",
+      "type": "signed_contract_in",
+      "weight": 0.95,
+      "properties": {}
+    },
+    {
+      "id": "46ff97f0-a017-5ab1-8c2e-477a2574efc4",
+      "familyId": "46ff97f0-a017-5ab1-8c2e-477a2574efc4",
+      "source_id": "person_alice",
+      "target_id": "date_march_12_2025",
+      "type": "signed_contract_on",
+      "weight": 0.95,
+      "properties": {}
+    },
+    {
+      "id": "d44ff467-8cfe-529a-b28e-0410f653956e",
+      "familyId": "d44ff467-8cfe-529a-b28e-0410f653956e",
+      "source_id": "org_acme_corp",
+      "target_id": "gpe_boston",
+      "type": "headquartered_in",
+      "weight": 0.95,
+      "properties": {}
+    },
+    {
+      "id": "439183d5-3a3a-5382-8ba5-3c7f3f146923",
+      "familyId": "439183d5-3a3a-5382-8ba5-3c7f3f146923",
+      "source_id": "org_acme_corp",
+      "target_id": "unknown_over_500_people",
+      "type": "employs",
+      "weight": 0.9,
+      "properties": {}
+    }
+  ],
+  "links": []
+}
