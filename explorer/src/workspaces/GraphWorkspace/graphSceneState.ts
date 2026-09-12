@@ -127,6 +127,8 @@ export type ResolvedEdgeStyle = {
   arrowVisibilityPolicy: GraphArrowVisibilityPolicy;
   curveStrength: number;
   curvature: number;
+  labelSide?: 1 | -1;
+  forceLabel?: boolean;
 };
 
 export function getDistanceBandColor(distance: number): string {
@@ -1707,10 +1709,11 @@ function resolveStraightEdgeType(
   variant: GraphEdgeVariant,
   attrs: EdgeAttributes,
   viewMode: GraphViewMode,
+  forceArrow = false,
 ): "line" | "arrow" {
   const variantConfig = theme.edges.variants[variant];
 
-  if (theme.edges.states[state].forceArrow || variantConfig.arrowPolicy === "always") {
+  if (forceArrow || theme.edges.states[state].forceArrow || variantConfig.arrowPolicy === "always") {
     return "arrow";
   }
 
@@ -1774,6 +1777,7 @@ export function resolveEdgeElementStyle(
   viewMode: GraphViewMode = "full",
   edgeId?: string,
   fullEdgeClass?: GraphFullEdgeClass,
+  forceArrow = false,
 ): ResolvedEdgeStyle {
   const tierConfig = theme.zoomTiers[zoomTier];
   const stateConfig = theme.edges.states[state];
@@ -1822,7 +1826,7 @@ export function resolveEdgeElementStyle(
   const sizeMultiplier = (state === "default" ? tierConfig.edgeSizeScale : stateConfig.sizeMultiplier)
     * variantConfig.sizeMultiplier
     * lodSizeMultiplier;
-  const straightType = resolveStraightEdgeType(theme, zoomTier, state, edgeVariant, attrs, viewMode);
+  const straightType = resolveStraightEdgeType(theme, zoomTier, state, edgeVariant, attrs, viewMode, forceArrow);
   const useCurvedRenderer = tierConfig.showCurves
     && (
       edgeVariant === "pathSignal"

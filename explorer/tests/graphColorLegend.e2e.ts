@@ -32,7 +32,8 @@ async function assertLegendMatchesGraph(page: Page, nodeIds?: string[]) {
       const hex = attrs.baseColor.replace("#", "");
       colors[attrs.semanticGroup] = `rgb(${[0, 2, 4].map((i) => parseInt(hex.slice(i, i + 2), 16)).join(", ")})`;
     });
-    const items = [...document.querySelectorAll(".explore-color-legend-item")].map((item) => ({
+    const legend = document.querySelector('[role="group"][aria-label="Node colors"]');
+    const items = [...(legend?.querySelectorAll(".explore-color-legend-item") ?? [])].map((item) => ({
       group: item.querySelector(".explore-color-legend-name")?.textContent,
       color: getComputedStyle(item.querySelector(".explore-color-legend-mark")!).backgroundColor,
     }));
@@ -45,7 +46,8 @@ async function assertLegendMatchesGraph(page: Page, nodeIds?: string[]) {
 }
 
 test("visible legend follows loaded data, reloads, focused views, and distance mode", async (t) => {
-  const server = spawn("npm", ["run", "dev", "--", "--host", "127.0.0.1", "--port", "4175", "--strictPort"], { stdio: "ignore" });
+  const npmCmd = process.platform === "win32" ? "npm.cmd" : "npm";
+  const server = spawn(npmCmd, ["run", "dev", "--", "--host", "127.0.0.1", "--port", "4175", "--strictPort"], { stdio: "ignore", shell: process.platform === "win32" });
   t.after(() => { server.kill(); });
   let ready = false;
   for (let i = 0; i < 100; i += 1) {
@@ -53,10 +55,13 @@ test("visible legend follows loaded data, reloads, focused views, and distance m
     await delay(100);
   }
   assert.ok(ready, "Vite must start");
+  const winChrome = "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";
   const browser = await chromium.launch({
     headless: true,
     executablePath:
-      process.env.CHROMIUM_PATH || (existsSync("/usr/bin/chromium") ? "/usr/bin/chromium" : undefined),
+      process.env.CHROMIUM_PATH
+      || (existsSync("/usr/bin/chromium") ? "/usr/bin/chromium" : undefined)
+      || (process.platform === "win32" && existsSync(winChrome) ? winChrome : undefined),
   });
   t.after(() => browser.close());
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
@@ -80,7 +85,11 @@ test("visible legend follows loaded data, reloads, focused views, and distance m
   });
   await page.goto(BASE_URL);
   await page.getByRole("button", { name: "Open Semantica Explorer" }).click();
-  const legend = page.getByRole("group", { name: "Node colors" });
+  const chrome = page.locator(".explore-command-chrome");
+  const dropdown = chrome.locator(".explore-command-dropdown");
+  await chrome.waitFor();
+  await chrome.hover();
+  const legend = dropdown.getByRole("group", { name: "Node colors" });
   await legend.waitFor();
   await page.locator("canvas").first().waitFor({ state: "visible" });
   await assertLegendMatchesGraph(page);
@@ -88,26 +97,31 @@ test("visible legend follows loaded data, reloads, focused views, and distance m
   assert.equal(await legend.getByText("Biomolecule", { exact: true }).count(), 0);
 
   nodes = initialNodes.map((node) => ({ ...node, type: node.type === "Person" ? "Researcher" : node.type }));
-  await page.getByRole("button", { name: "Reload graph data" }).click();
+  await chrome.hover();
+  await dropdown.getByRole("button", { name: "Reload graph data" }).click();
   await legend.getByText("Researcher", { exact: true }).waitFor();
   assert.equal(await legend.getByText("Person", { exact: true }).count(), 0);
   await assertLegendMatchesGraph(page);
 
-  await page.getByPlaceholder("Search command, node, or concept").fill("Alice");
+  await chrome.hover();
+  await dropdown.getByPlaceholder("Search command, node, or concept").fill("Alice");
   await page.getByRole("option").filter({ hasText: "Alice" }).click();
-  const heatmap = page.getByRole("button", { name: "Heatmap", exact: true });
+  await chrome.hover();
+  const heatmap = dropdown.getByRole("button", { name: "Heatmap", exact: true });
   await heatmap.click();
   await legend.waitFor({ state: "hidden" });
   await heatmap.click();
   await legend.waitFor();
   await assertLegendMatchesGraph(page);
-  const focusButton = page.getByRole("button", { name: "Focus", exact: true });
+  await chrome.hover();
+  const focusButton = dropdown.getByRole("button", { name: "Focus", exact: true });
   assert.equal(await focusButton.isDisabled(), false, "Focus is enabled once a node is selected");
   await focusButton.click();
   await legend.getByText("Document", { exact: true }).waitFor({ state: "hidden" });
   await assertLegendMatchesGraph(page, ["alice", "acme", "research"]);
   assert.equal(await legend.getByText("Researcher", { exact: true }).count(), 1);
-  await page.getByRole("button", { name: "Full Graph", exact: true }).click();
+  await chrome.hover();
+  await dropdown.getByRole("button", { name: "Full Graph", exact: true }).click();
   await legend.getByText("Document", { exact: true }).waitFor();
   await assertLegendMatchesGraph(page);
   assert.deepEqual(errors, []);

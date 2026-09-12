@@ -3,9 +3,10 @@ import { NodeProgram, type ProgramInfo } from "sigma/rendering";
 import { DEFAULT_EDGE_PROGRAM_CLASSES, DEFAULT_NODE_PROGRAM_CLASSES } from "sigma/settings";
 import type { NodeDisplayData, RenderParams } from "sigma/types";
 import { floatColor } from "sigma/utils";
-import type { NodeHoverDrawingFunction, NodeLabelDrawingFunction } from "sigma/rendering";
+import type { NodeHoverDrawingFunction, NodeLabelDrawingFunction, EdgeLabelDrawingFunction } from "sigma/rendering";
 
 import { GRAPH_THEME, type GraphEntityShapeVariant, withAlpha } from "./graphTheme";
+import { resolveBidirectionalLabelPlacement, type EdgeLabelSide } from "./edgeHoverLabels";
 
 type SemanticaNodeDrawData = {
   x: number;
@@ -406,6 +407,69 @@ export const drawSemanticaNodeHover: NodeHoverDrawingFunction = (context, rawDat
     y + hoverTheme.paddingY + hoverTheme.titleSize + hoverTheme.metaGap,
   );
 
+  context.restore();
+};
+
+export const drawSemanticaEdgeLabel: EdgeLabelDrawingFunction = (
+  context,
+  edgeData,
+  sourceData,
+  targetData,
+  settings,
+) => {
+  const label = edgeData.label;
+  if (!label) {
+    return;
+  }
+
+  const fontSize = settings.edgeLabelSize;
+  const font = `${settings.edgeLabelWeight} ${fontSize}px ${settings.edgeLabelFont}`;
+  const textColor = typeof settings.edgeLabelColor === "object" && "color" in settings.edgeLabelColor
+    ? settings.edgeLabelColor.color
+    : GRAPH_THEME.ui.text.body;
+  const chipTheme = GRAPH_THEME.labels.chip;
+  const side = (typeof (edgeData as { labelSide?: EdgeLabelSide }).labelSide === "number"
+    ? (edgeData as { labelSide?: EdgeLabelSide }).labelSide
+    : 1) as EdgeLabelSide;
+
+  context.save();
+  context.font = font;
+  context.textBaseline = "middle";
+  context.textAlign = "center";
+  const metrics = context.measureText(label);
+  const width = metrics.width + chipTheme.paddingX * 2;
+  const height = fontSize + chipTheme.paddingY * 2;
+  const placement = resolveBidirectionalLabelPlacement({
+    source: { x: sourceData.x, y: sourceData.y },
+    target: { x: targetData.x, y: targetData.y },
+    side,
+    labelWidth: width,
+    labelHeight: height,
+    minGap: Math.max(10, edgeData.size + 8),
+  });
+
+  let angle = placement.angle;
+  if (angle > Math.PI / 2 || angle < -Math.PI / 2) {
+    angle += Math.PI;
+  }
+
+  context.translate(placement.x, placement.y);
+  context.rotate(angle);
+
+  context.shadowColor = withAlpha(chipTheme.shadowColor, chipTheme.shadowAlpha);
+  context.shadowBlur = chipTheme.shadowBlur;
+  context.fillStyle = chipTheme.background;
+  drawRoundedRect(context, -width / 2, -height / 2, width, height, chipTheme.radius);
+  context.fill();
+
+  context.shadowBlur = 0;
+  context.strokeStyle = withAlpha(edgeData.color || chipTheme.borderColor, chipTheme.borderAlpha);
+  context.lineWidth = 1;
+  drawRoundedRect(context, -width / 2, -height / 2, width, height, chipTheme.radius);
+  context.stroke();
+
+  context.fillStyle = textColor || chipTheme.textColor;
+  context.fillText(label, 0, 0);
   context.restore();
 };
 

@@ -28,6 +28,8 @@ import { useLoadGraph, useReloadGraph } from "./useLoadGraph";
 import { GraphLoadingOverlay } from "./GraphLoadingOverlay";
 import { createGraphLoadProgress, getGraphLoadTitle } from "./graphLoading";
 import { GRAPH_THEME, withAlpha } from "./graphTheme";
+import { useFitCompactChromeText } from "./fitCompactChrome";
+import { useSceneOverlayChrome } from "./exploreOverlayChrome";
 import { buildGraphColorLegend, type GraphColorLegendItem } from "./graphColorLegend";
 import { buildHeatmapRenderSnapshot, buildStructuralDistanceSnapshot, checkGroupedViewAvailability, getDistanceBandColor, resolveDisplayGraph, resolveDisplayStateSnapshot, resolveGroupedDisplayNodeId, resolveGroupedDisplayStateSnapshot, summarizeDistanceBuckets } from "./graphSceneState";
 import {
@@ -272,7 +274,7 @@ function ToolbarCluster({
   );
 }
 
-function SegmentedModeControl({ items }: { items: GraphToolbarItem[] }) {
+function SegmentedModeControl({ items, compact = false }: { items: GraphToolbarItem[]; compact?: boolean }) {
   if (!items.length) {
     return null;
   }
@@ -280,7 +282,7 @@ function SegmentedModeControl({ items }: { items: GraphToolbarItem[] }) {
   return (
     <div className="explore-mode-control" role="group" aria-label="Graph view mode">
       {items.map((item) => (
-        <ToolbarButton key={item.id} item={item} className="explore-mode-segment" />
+        <ToolbarButton key={item.id} item={item} compact={compact} className="explore-mode-segment" />
       ))}
     </div>
   );
@@ -452,10 +454,15 @@ function SearchCommandBar({
   );
 }
 
-function SemanticColorLegend({ items }: { items: GraphColorLegendItem[] }) {
+function SemanticColorLegend({ items, compact = false }: { items: GraphColorLegendItem[]; compact?: boolean }) {
   if (!items.length) return null;
   return (
-    <div className="explore-color-legend" role="group" aria-label="Node colors">
+    <div
+      className="explore-color-legend"
+      role={compact ? undefined : "group"}
+      aria-label={compact ? undefined : "Node colors"}
+      aria-hidden={compact || undefined}
+    >
       <span className="explore-color-legend-label" title="Base semantic colors; selection, zoom, and distance effects can change node appearance.">
         Node colors
       </span>
@@ -622,7 +629,7 @@ const HUD_CSS = `
     padding: 12px;
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 0;
   }
   .explore-command-deck {
     position: relative;
@@ -660,7 +667,7 @@ const HUD_CSS = `
     min-height: 0;
     flex: 1;
     overflow: hidden;
-    border-radius: 20px 20px 0 0;
+    border-radius: 20px;
     background: ${GRAPH_THEME.ui.surface.stage};
   }
   .explore-scene-stage {
@@ -674,6 +681,184 @@ const HUD_CSS = `
     z-index: 3;
     border-top: 1px solid ${GRAPH_THEME.ui.timeline.border};
     background: ${GRAPH_THEME.ui.timeline.background};
+  }
+  .explore-command-overlay,
+  .explore-temporal-overlay {
+    position: absolute;
+    z-index: 8;
+    pointer-events: none;
+  }
+  .explore-command-overlay {
+    top: 10px;
+    left: 10px;
+    right: 10px;
+  }
+  .explore-temporal-overlay {
+    left: 10px;
+    right: 10px;
+    bottom: 10px;
+  }
+  .explore-command-chrome,
+  .explore-temporal-chrome {
+    pointer-events: auto;
+    max-width: 100%;
+  }
+  .explore-command-chrome {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+  .explore-command-compact {
+    display: flex;
+    align-items: center;
+    flex-wrap: nowrap;
+    gap: 8px;
+    min-height: 40px;
+    max-height: 40px;
+    padding: 4px 8px;
+    border-radius: 16px;
+    border: 1px solid ${GRAPH_THEME.ui.control.defaultBorder};
+    background: ${GRAPH_THEME.ui.surface.cardStrong};
+    box-shadow: ${GRAPH_THEME.ui.surface.shadow};
+    overflow: hidden;
+    --compact-chip-size: 12px;
+  }
+  .explore-command-compact .explore-status-strip {
+    flex: 0 1 auto;
+    flex-wrap: nowrap;
+    gap: calc(var(--compact-chip-size) * 0.55);
+  }
+  .explore-command-compact .sem-chip {
+    flex: 0 0 auto;
+    font-size: var(--compact-chip-size);
+    line-height: 1;
+    white-space: nowrap;
+    padding: calc(var(--compact-chip-size) * 0.45) calc(var(--compact-chip-size) * 0.8);
+    max-height: 32px;
+  }
+  .explore-command-compact-tools,
+  .explore-command-search-affordance,
+  .explore-command-compact .explore-color-legend {
+    flex-shrink: 0;
+  }
+  .explore-command-compact .explore-tool-cluster {
+    min-height: 32px;
+    padding: 2px;
+  }
+  .explore-command-compact .explore-tool-cluster-label,
+  .explore-command-compact .explore-tool-button-label,
+  .explore-command-compact .explore-color-legend-label,
+  .explore-command-compact .explore-color-legend-name {
+    display: none;
+  }
+  .explore-command-compact-tools {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+  }
+  .explore-command-compact .explore-toolbelt {
+    flex-wrap: nowrap;
+    overflow: hidden;
+  }
+  .explore-command-compact .explore-mode-control {
+    grid-template-columns: repeat(3, minmax(32px, auto));
+    min-width: 0;
+  }
+  .explore-command-compact .explore-color-legend {
+    padding: 0;
+    gap: 6px;
+  }
+  .explore-command-compact .explore-color-legend-items {
+    max-height: none;
+    flex-wrap: nowrap;
+  }
+  .explore-command-search-affordance {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    height: 32px;
+    border: 1px solid ${GRAPH_THEME.ui.control.defaultBorder};
+    border-radius: 12px;
+    background: ${GRAPH_THEME.ui.control.defaultBg};
+    color: ${GRAPH_THEME.ui.control.defaultText};
+    cursor: pointer;
+  }
+  .explore-command-dropdown {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 12px;
+    border-radius: 18px;
+    border: 1px solid ${GRAPH_THEME.ui.control.inputBorder};
+    background: ${GRAPH_THEME.ui.surface.cardStrong};
+    box-shadow: ${GRAPH_THEME.ui.surface.shadow};
+  }
+  .explore-command-dropdown[hidden] {
+    display: none;
+  }
+  .explore-command-confirm {
+    align-self: flex-end;
+    min-height: 32px;
+    border-radius: 12px;
+    border: 1px solid ${GRAPH_THEME.ui.control.primaryBorder};
+    background: ${GRAPH_THEME.ui.control.primaryBg};
+    color: ${GRAPH_THEME.ui.control.primaryText};
+    font-size: 12px;
+    font-weight: 800;
+    padding: 0 12px;
+    cursor: pointer;
+  }
+  .explore-temporal-chrome {
+    border-radius: 16px;
+    border: 1px solid ${GRAPH_THEME.ui.timeline.border};
+    background: ${GRAPH_THEME.ui.timeline.background};
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    box-shadow: ${GRAPH_THEME.ui.surface.shadow};
+  }
+  .explore-temporal-compact {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 40px;
+    padding: 4px 12px;
+  }
+  .explore-temporal-dropdown {
+    display: flex;
+    align-items: stretch;
+    gap: 10px;
+    padding: 0 10px 10px;
+  }
+  .explore-temporal-dropdown[hidden] {
+    display: none !important;
+  }
+  .explore-temporal-dropdown-label {
+    position: absolute;
+    top: 44px;
+    left: 108px;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    color: ${GRAPH_THEME.ui.text.subtle};
+    text-transform: uppercase;
+    pointer-events: none;
+    z-index: 2;
+  }
+  .explore-temporal-confirm {
+    flex-shrink: 0;
+    align-self: center;
+    min-height: 32px;
+    border-radius: 12px;
+    border: 1px solid ${GRAPH_THEME.ui.control.primaryBorder};
+    background: ${GRAPH_THEME.ui.control.primaryBg};
+    color: ${GRAPH_THEME.ui.control.primaryText};
+    font-size: 12px;
+    font-weight: 800;
+    padding: 0 12px;
+    cursor: pointer;
   }
   .explore-plugin-dock {
     position: relative;
@@ -1299,6 +1484,30 @@ export function GraphWorkspace({ externalFocusNodeId, externalFocusToken, onDirt
   // FR-2: Egocentric depth-of-field
   const [egoModeEnabled, setEgoModeEnabled] = useState(false);
   const [egoMaxHops, setEgoMaxHops] = useState(3);
+  const [egoDraftHops, setEgoDraftHops] = useState(3);
+  const commandOverlay = useSceneOverlayChrome();
+  const compactRowRef = useRef<HTMLDivElement>(null);
+  const egoDirty = egoModeEnabled && egoDraftHops !== egoMaxHops;
+
+  useEffect(() => {
+    setEgoDraftHops(egoMaxHops);
+  }, [egoMaxHops]);
+
+  useEffect(() => {
+    commandOverlay.setDirtyDraft(egoDirty);
+  }, [commandOverlay.setDirtyDraft, egoDirty]);
+
+  const confirmCommandDraft = useCallback(() => {
+    if (egoModeEnabled) {
+      setEgoMaxHops(egoDraftHops);
+    }
+    commandOverlay.confirmAndCollapse();
+  }, [commandOverlay, egoDraftHops, egoModeEnabled]);
+
+  const discardCommandDraft = useCallback(() => {
+    setEgoDraftHops(egoMaxHops);
+    commandOverlay.discardAndCollapse();
+  }, [commandOverlay, egoMaxHops]);
   // FR-3 frontend: Distance mode overlay
   const [distanceMode, setDistanceMode] = useState<"off" | "structural" | "semantic">("off");
   // FR-5: Distance heatmap layout
@@ -1716,6 +1925,7 @@ export function GraphWorkspace({ externalFocusNodeId, externalFocusToken, onDirt
       setPathResult(null);
       setSearchResults([]);
       setSearchError("");
+      commandOverlay.collapseIfIdle();
       return;
     }
 
@@ -1731,11 +1941,12 @@ export function GraphWorkspace({ externalFocusNodeId, externalFocusToken, onDirt
     setPathResult(null);
     setSearchResults([]);
     setSearchError("");
+    commandOverlay.collapseIfIdle();
     if (viewMode === "focused" && graph.hasNode(nextSelectedNodeId)) {
       setFocusedNodeId(nextSelectedNodeId);
       setIsLayoutRunning(false);
     }
-  }, [confirmDiscardMarkdownDraft, selectedNodeId, viewMode]);  // Note: ego/heatmap/distanceMode effects re-run automatically when selectedNodeId changes
+  }, [commandOverlay.collapseIfIdle, confirmDiscardMarkdownDraft, selectedNodeId, viewMode]);  // Note: ego/heatmap/distanceMode effects re-run automatically when selectedNodeId changes
 
   useEffect(() => {
     if (!externalFocusNodeId || externalFocusToken == null) return;
@@ -3071,6 +3282,15 @@ export function GraphWorkspace({ externalFocusNodeId, externalFocusToken, onDirt
       { label: "4-6h", color: getDistanceBandColor(6) },
     ];
 
+  const compactChromeTextKey = [
+    loadingProgress?.phase ?? "",
+    summary ? `${summary.nodeCount}:${summary.edgeCount}` : "",
+    activeNodeCount ?? "",
+    focusedSummary ?? "",
+    colorLegendItems.length,
+  ].join("|");
+  useFitCompactChromeText(compactRowRef, compactChromeTextKey);
+
   return (
     <div className="palantir-bg" style={{ position: "relative", width: "100%", height: "100%", overflow: "hidden" }}>
       <style>{HUD_CSS}</style>
@@ -3078,210 +3298,6 @@ export function GraphWorkspace({ externalFocusNodeId, externalFocusToken, onDirt
       <div className="palantir-vignette" />
 
       <div className="explore-shell">
-        <section className="explore-command-deck">
-          <SurfaceCard tone="subtle">
-            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              <div className="explore-toolbar">
-                <div className="explore-status-strip">
-                  {(showLoadingOverlay || showSettlingStatus) && loadingProgress ? (
-                    <MetricChip>{getGraphLoadTitle(loadingProgress.phase)}</MetricChip>
-                  ) : null}
-                  {summary ? (
-                    <MetricChip>{summary.nodeCount.toLocaleString()} nodes · {summary.edgeCount.toLocaleString()} edges</MetricChip>
-                  ) : null}
-                  {activeNodeCount !== null ? (
-                    <MetricChip tone="success">{activeNodeCount.toLocaleString()} active</MetricChip>
-                  ) : null}
-                  {focusedSummary ? <MetricChip tone="warm">{focusedSummary}</MetricChip> : null}
-                </div>
-                <div className="explore-workflow-bar">
-                  <SearchCommandBar
-                    value={searchQuery}
-                    disabled={searchDisabled}
-                    onChange={setSearchQuery}
-                    onSubmit={() => void handleSearch()}
-                    onSelectSuggestion={(result) => {
-                      setSearchQuery("");
-                      focusNode(result.node.id);
-                    }}
-                  />
-                  <SegmentedModeControl items={viewModeItems} />
-                  <div className="explore-toolbelt">
-                    {toolbarClusters.map((group) => (
-                      <ToolbarCluster
-                        key={group.id}
-                        label={group.label ?? group.id}
-                        items={group.items}
-                        compact={COMPACT_TOOLBAR_CLUSTER_IDS.has(group.id)}
-                      />
-                    ))}
-                  </div>
-                </div>
-                {!showDistanceStatus ? <SemanticColorLegend items={colorLegendItems} /> : null}
-              </div>
-
-              {egoModeEnabled && (
-                <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 12, color: "#a0b4cc" }}>
-                  <span style={{ fontWeight: 600, color: "#79c0ff" }}>Ego depth:</span>
-                  <input
-                    type="range"
-                    min={1}
-                    max={8}
-                    value={egoMaxHops}
-                    onChange={(e) => setEgoMaxHops(Number(e.target.value))}
-                    style={{ width: 90, accentColor: "#79c0ff" }}
-                    title={`Ego depth: ${egoMaxHops} hops`}
-                  />
-                  <span style={{ fontFamily: "monospace", color: "#e6f2ff" }}>{egoMaxHops} hop{egoMaxHops !== 1 ? "s" : ""}</span>
-                </div>
-              )}
-
-              {showDistanceStatus ? (
-                <div style={distanceStatusStripStyle}>
-                  <div style={distanceStatusTitleStyle}>
-                    <Activity size={14} aria-hidden />
-                    <span>Distance Intelligence</span>
-                    <span style={distanceModeBadgeStyle}>{distanceVisualState.mode}</span>
-                  </div>
-                  <div style={distanceStatusMetaStyle}>
-                    {distanceVisualState.anchorLabel ? (
-                      <span>Anchor: <strong>{distanceVisualState.anchorLabel}</strong></span>
-                    ) : null}
-                    {distanceVisualState.mode === "semantic" ? (
-                      <span>
-                        {distanceVisualState.status === "loading"
-                          ? "Loading semantic neighborhood..."
-                          : `${distanceVisualState.semanticNeighborCount ?? 0} semantic neighbors`}
-                      </span>
-                    ) : distanceVisualState.mode === "heatmap" ? (
-                      <span>{heatmapDistanceSummary}</span>
-                    ) : (
-                      <span>{distanceReachableCount.toLocaleString()} nodes within {distanceVisualState.maxHops} hops</span>
-                    )}
-                    {distanceVisualState.status === "unavailable" || distanceVisualState.status === "error" ? (
-                      <span style={{ color: GRAPH_THEME.ui.control.dangerText }}>{distanceVisualState.error}</span>
-                    ) : null}
-                    {heatmapRenderedSummary ? (
-                      <span style={{ color: GRAPH_THEME.ui.text.muted }}>{heatmapRenderedSummary}</span>
-                    ) : null}
-                  </div>
-                  <div style={distanceLegendStyle}>
-                    {distanceLegendItems.map((item) => (
-                      <span key={item.label} style={distanceLegendItemStyle}>
-                        <span style={{ ...distanceLegendSwatchStyle, background: item.color }} />
-                        {item.label}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              ) : null}
-
-              {searchError ? <div style={{ color: "#ff7b72", fontSize: 12 }}>{searchError}</div> : null}
-
-              {searchResults.length ? (
-                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
-                    <span style={{ color: "#8b949e", fontSize: 12 }}>
-                      {searchResults.length} result{searchResults.length === 1 ? "" : "s"}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={handleClearSearchResults}
-                      style={{ ...secondaryActionButtonStyle, minHeight: 26, padding: "4px 9px", gap: 5 }}
-                      aria-label="Dismiss search results"
-                    >
-                      <X size={12} strokeWidth={2.4} />
-                      Dismiss
-                    </button>
-                  </div>
-                  <div className="explore-search-results hud-scrollbar" style={searchResultsStripStyle}>
-                    {searchResults.map((result) => (
-                      <button key={result.node.id} style={predictionCardStyle} onClick={() => focusNode(result.node.id)}>
-                        <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
-                          <div style={{ minWidth: 0 }}>
-                            <div style={{ color: "#fff", fontWeight: 600 }}>{result.node.content || result.node.id}</div>
-                            <div style={{ color: "#8b949e", fontSize: 12 }}>{result.node.type}</div>
-                          </div>
-                          <div style={{ color: "#58a6ff", fontSize: 12, whiteSpace: "nowrap" }}>
-                            {Math.round(result.score)}
-                          </div>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              ) : null}
-
-              {selectedEdgeState ? (
-                <div style={selectedEdgeCardStyle}>
-                  <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start" }}>
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ color: "rgba(127, 208, 255, 0.76)", fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase" }}>
-                        Relationship
-                      </div>
-                      <div style={{ color: "#f4f8ff", fontSize: 15, fontWeight: 700, marginTop: 6 }}>
-                        {selectedEdgeState.edgeType}
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => setSelectedEdgeId("")}
-                      style={{ ...secondaryActionButtonStyle, minHeight: 30, padding: "6px 10px" }}
-                    >
-                      Close
-                    </button>
-                  </div>
-
-                  <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                    <button style={selectedEdgeNodeChipStyle} onClick={() => focusNode(selectedEdgeState.sourceId)}>
-                      {selectedEdgeState.sourceLabel}
-                    </button>
-                    <span style={{ color: "#7fa7ce", fontSize: 12 }}>→</span>
-                    <button style={selectedEdgeNodeChipStyle} onClick={() => focusNode(selectedEdgeState.targetId)}>
-                      {selectedEdgeState.targetLabel}
-                    </button>
-                  </div>
-
-                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                    <MetricChip tone="warm">weight {selectedEdgeState.weight.toFixed(2)}</MetricChip>
-                    {selectedEdgeState.isAggregated ? (
-                      <MetricChip tone="success">
-                        {selectedEdgeState.aggregateCount} bundled edge{selectedEdgeState.aggregateCount === 1 ? "" : "s"}
-                      </MetricChip>
-                    ) : (
-                      <MetricChip>{selectedEdgeState.siblingCount} parallel lane{selectedEdgeState.siblingCount === 1 ? "" : "s"}</MetricChip>
-                    )}
-                    <MetricChip>{selectedEdgeState.familySize} family member{selectedEdgeState.familySize === 1 ? "" : "s"}</MetricChip>
-                    {selectedEdgeState.bundleKind ? (
-                      <MetricChip>{selectedEdgeState.bundleKind} bundle</MetricChip>
-                    ) : null}
-                    {selectedEdgeState.dominantEdgeType ? (
-                      <MetricChip>{selectedEdgeState.dominantEdgeType}</MetricChip>
-                    ) : null}
-                    {selectedEdgeState.provenanceCount > 0 ? (
-                      <MetricChip>{selectedEdgeState.provenanceCount} provenance fields</MetricChip>
-                    ) : null}
-                  </div>
-
-                  {Object.keys(selectedEdgeState.properties).length ? (
-                    <div style={selectedEdgePropertyGridStyle}>
-                      {Object.entries(selectedEdgeState.properties).slice(0, 4).map(([key, value]) => (
-                        <div key={key} style={selectedEdgePropertyCardStyle}>
-                          <div style={{ color: "rgba(127, 208, 255, 0.68)", fontSize: 10, letterSpacing: "0.06em", textTransform: "uppercase" }}>
-                            {key}
-                          </div>
-                          <div style={{ color: "#dce7f4", fontSize: 12, marginTop: 4, wordBreak: "break-word" }}>
-                            {typeof value === "object" ? JSON.stringify(value) : String(value)}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  ) : null}
-                </div>
-              ) : null}
-            </div>
-          </SurfaceCard>
-        </section>
-
         <div
           className="explore-main-grid"
           style={{
@@ -3305,6 +3321,255 @@ export function GraphWorkspace({ externalFocusNodeId, externalFocusToken, onDirt
                     error={graphLoadErrorMessage}
                     onRetry={handleRetryGraphLoad}
                   />
+                </div>
+                <div className="explore-command-overlay">
+                  <div
+                    ref={commandOverlay.rootRef}
+                    className="explore-command-chrome"
+                    aria-expanded={commandOverlay.expanded}
+                    data-expanded={commandOverlay.expanded ? "true" : "false"}
+                    onPointerEnter={commandOverlay.onPointerEnter}
+                    onPointerLeave={commandOverlay.onPointerLeave}
+                    onFocusCapture={commandOverlay.onFocusCapture}
+                    onBlurCapture={commandOverlay.onBlurCapture}
+                    onKeyDown={(event) => {
+                      if (event.key !== "Escape") {
+                        return;
+                      }
+                      event.preventDefault();
+                      discardCommandDraft();
+                    }}
+                  >
+                    <div
+                      ref={compactRowRef}
+                      className="explore-command-compact"
+                      onPointerUp={commandOverlay.onCompactPointerUp}
+                    >
+                      <div className="explore-status-strip">
+                        {(showLoadingOverlay || showSettlingStatus) && loadingProgress ? (
+                          <MetricChip>{getGraphLoadTitle(loadingProgress.phase)}</MetricChip>
+                        ) : null}
+                        {summary ? (
+                          <MetricChip>{summary.nodeCount.toLocaleString()} nodes · {summary.edgeCount.toLocaleString()} edges</MetricChip>
+                        ) : null}
+                        {activeNodeCount !== null ? (
+                          <MetricChip tone="success">{activeNodeCount.toLocaleString()} active</MetricChip>
+                        ) : null}
+                        {focusedSummary ? <MetricChip tone="warm">{focusedSummary}</MetricChip> : null}
+                      </div>
+                      <button
+                        type="button"
+                        className="explore-command-search-affordance"
+                        aria-label="Open search"
+                        title="Search command, node, or concept"
+                      >
+                        <Search size={15} strokeWidth={2.15} aria-hidden />
+                      </button>
+                      <div className="explore-command-compact-tools" inert={commandOverlay.expanded || undefined}>
+                        <SegmentedModeControl items={viewModeItems} compact />
+                        <div className="explore-toolbelt">
+                          {toolbarClusters.filter((group) => group.id !== "distance" && group.id !== "local-structure").map((group) => (
+                            <ToolbarCluster
+                              key={group.id}
+                              label={group.label ?? group.id}
+                              items={group.items}
+                              compact
+                            />
+                          ))}
+                        </div>
+                      </div>
+                      {!showDistanceStatus ? <SemanticColorLegend items={colorLegendItems} compact /> : null}
+                    </div>
+                    <div className="explore-command-dropdown" hidden={!commandOverlay.expanded}>
+                      <div className="explore-workflow-bar">
+                        <SearchCommandBar
+                          value={searchQuery}
+                          disabled={searchDisabled}
+                          onChange={setSearchQuery}
+                          onSubmit={() => void handleSearch()}
+                          onSelectSuggestion={(result) => {
+                            setSearchQuery("");
+                            focusNode(result.node.id);
+                          }}
+                        />
+                        <SegmentedModeControl items={viewModeItems} />
+                        <div className="explore-toolbelt">
+                          {toolbarClusters.map((group) => (
+                            <ToolbarCluster
+                              key={`expanded-${group.id}`}
+                              label={group.label ?? group.id}
+                              items={group.items}
+                              compact={COMPACT_TOOLBAR_CLUSTER_IDS.has(group.id)}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                      {!showDistanceStatus ? <SemanticColorLegend items={colorLegendItems} /> : null}
+                      {egoModeEnabled && (
+                        <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 12, color: "#a0b4cc" }}>
+                          <span style={{ fontWeight: 600, color: "#79c0ff" }}>Ego depth:</span>
+                          <input
+                            type="range"
+                            min={1}
+                            max={8}
+                            value={egoDraftHops}
+                            onChange={(e) => setEgoDraftHops(Number(e.target.value))}
+                            style={{ width: 90, accentColor: "#79c0ff" }}
+                            title={`Ego depth: ${egoDraftHops} hops`}
+                          />
+                          <span style={{ fontFamily: "monospace", color: "#e6f2ff" }}>{egoDraftHops} hop{egoDraftHops !== 1 ? "s" : ""}</span>
+                          <button type="button" className="explore-command-confirm" onClick={confirmCommandDraft}>
+                            Confirm
+                          </button>
+                        </div>
+                      )}
+                      {showDistanceStatus ? (
+                        <div style={distanceStatusStripStyle}>
+                          <div style={distanceStatusTitleStyle}>
+                            <Activity size={14} aria-hidden />
+                            <span>Distance Intelligence</span>
+                            <span style={distanceModeBadgeStyle}>{distanceVisualState.mode}</span>
+                          </div>
+                          <div style={distanceStatusMetaStyle}>
+                            {distanceVisualState.anchorLabel ? (
+                              <span>Anchor: <strong>{distanceVisualState.anchorLabel}</strong></span>
+                            ) : null}
+                            {distanceVisualState.mode === "semantic" ? (
+                              <span>
+                                {distanceVisualState.status === "loading"
+                                  ? "Loading semantic neighborhood..."
+                                  : `${distanceVisualState.semanticNeighborCount ?? 0} semantic neighbors`}
+                              </span>
+                            ) : distanceVisualState.mode === "heatmap" ? (
+                              <span>{heatmapDistanceSummary}</span>
+                            ) : (
+                              <span>{distanceReachableCount.toLocaleString()} nodes within {distanceVisualState.maxHops} hops</span>
+                            )}
+                            {distanceVisualState.status === "unavailable" || distanceVisualState.status === "error" ? (
+                              <span style={{ color: GRAPH_THEME.ui.control.dangerText }}>{distanceVisualState.error}</span>
+                            ) : null}
+                            {heatmapRenderedSummary ? (
+                              <span style={{ color: GRAPH_THEME.ui.text.muted }}>{heatmapRenderedSummary}</span>
+                            ) : null}
+                          </div>
+                          <div style={distanceLegendStyle}>
+                            {distanceLegendItems.map((item) => (
+                              <span key={item.label} style={distanceLegendItemStyle}>
+                                <span style={{ ...distanceLegendSwatchStyle, background: item.color }} />
+                                {item.label}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
+                      {searchError ? <div style={{ color: "#ff7b72", fontSize: 12 }}>{searchError}</div> : null}
+                      {searchResults.length ? (
+                        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+                            <span style={{ color: "#8b949e", fontSize: 12 }}>
+                              {searchResults.length} result{searchResults.length === 1 ? "" : "s"}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={handleClearSearchResults}
+                              style={{ ...secondaryActionButtonStyle, minHeight: 26, padding: "4px 9px", gap: 5 }}
+                              aria-label="Dismiss search results"
+                            >
+                              <X size={12} strokeWidth={2.4} />
+                              Dismiss
+                            </button>
+                          </div>
+                          <div className="explore-search-results hud-scrollbar" style={searchResultsStripStyle}>
+                            {searchResults.map((result) => (
+                              <button key={result.node.id} style={predictionCardStyle} onClick={() => focusNode(result.node.id)}>
+                                <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+                                  <div style={{ minWidth: 0 }}>
+                                    <div style={{ color: "#fff", fontWeight: 600 }}>{result.node.content || result.node.id}</div>
+                                    <div style={{ color: "#8b949e", fontSize: 12 }}>{result.node.type}</div>
+                                  </div>
+                                  <div style={{ color: "#58a6ff", fontSize: 12, whiteSpace: "nowrap" }}>
+                                    {Math.round(result.score)}
+                                  </div>
+                                </div>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
+                      {selectedEdgeState ? (
+                        <div style={selectedEdgeCardStyle}>
+                          <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start" }}>
+                            <div style={{ minWidth: 0 }}>
+                              <div style={{ color: "rgba(127, 208, 255, 0.76)", fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase" }}>
+                                Relationship
+                              </div>
+                              <div style={{ color: "#f4f8ff", fontSize: 15, fontWeight: 700, marginTop: 6 }}>
+                                {selectedEdgeState.edgeType}
+                              </div>
+                            </div>
+                            <button
+                              onClick={() => setSelectedEdgeId("")}
+                              style={{ ...secondaryActionButtonStyle, minHeight: 30, padding: "6px 10px" }}
+                            >
+                              Close
+                            </button>
+                          </div>
+                          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                            <button style={selectedEdgeNodeChipStyle} onClick={() => focusNode(selectedEdgeState.sourceId)}>
+                              {selectedEdgeState.sourceLabel}
+                            </button>
+                            <span style={{ color: "#7fa7ce", fontSize: 12 }}>→</span>
+                            <button style={selectedEdgeNodeChipStyle} onClick={() => focusNode(selectedEdgeState.targetId)}>
+                              {selectedEdgeState.targetLabel}
+                            </button>
+                          </div>
+                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                            <MetricChip tone="warm">weight {selectedEdgeState.weight.toFixed(2)}</MetricChip>
+                            {selectedEdgeState.isAggregated ? (
+                              <MetricChip tone="success">
+                                {selectedEdgeState.aggregateCount} bundled edge{selectedEdgeState.aggregateCount === 1 ? "" : "s"}
+                              </MetricChip>
+                            ) : (
+                              <MetricChip>{selectedEdgeState.siblingCount} parallel lane{selectedEdgeState.siblingCount === 1 ? "" : "s"}</MetricChip>
+                            )}
+                            <MetricChip>{selectedEdgeState.familySize} family member{selectedEdgeState.familySize === 1 ? "" : "s"}</MetricChip>
+                            {selectedEdgeState.bundleKind ? (
+                              <MetricChip>{selectedEdgeState.bundleKind} bundle</MetricChip>
+                            ) : null}
+                            {selectedEdgeState.dominantEdgeType ? (
+                              <MetricChip>{selectedEdgeState.dominantEdgeType}</MetricChip>
+                            ) : null}
+                            {selectedEdgeState.provenanceCount > 0 ? (
+                              <MetricChip>{selectedEdgeState.provenanceCount} provenance fields</MetricChip>
+                            ) : null}
+                          </div>
+                          {Object.keys(selectedEdgeState.properties).length ? (
+                            <div style={selectedEdgePropertyGridStyle}>
+                              {Object.entries(selectedEdgeState.properties).slice(0, 4).map(([key, value]) => (
+                                <div key={key} style={selectedEdgePropertyCardStyle}>
+                                  <div style={{ color: "rgba(127, 208, 255, 0.68)", fontSize: 10, letterSpacing: "0.06em", textTransform: "uppercase" }}>
+                                    {key}
+                                  </div>
+                                  <div style={{ color: "#dce7f4", fontSize: 12, marginTop: 4, wordBreak: "break-word" }}>
+                                    {typeof value === "object" ? JSON.stringify(value) : String(value)}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          ) : null}
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+                </div>
+                <div className="explore-temporal-overlay">
+                  <Suspense fallback={<div style={timelineFallbackStyle}>Loading timeline…</div>}>
+                    <LazyTimelinePanel
+                      onTimeChange={onTimeChange}
+                      minDate={temporalBounds?.min ?? undefined}
+                      maxDate={temporalBounds?.max ?? undefined}
+                    />
+                  </Suspense>
                 </div>
               </div>
 
@@ -3341,16 +3606,6 @@ export function GraphWorkspace({ externalFocusNodeId, externalFocusToken, onDirt
                   </SurfaceCard>
                 </div>
               ) : null}
-
-              <div className="explore-scene-footer">
-                <Suspense fallback={<div style={timelineFallbackStyle}>Loading timeline…</div>}>
-                  <LazyTimelinePanel
-                    onTimeChange={onTimeChange}
-                    minDate={temporalBounds?.min ?? undefined}
-                    maxDate={temporalBounds?.max ?? undefined}
-                  />
-                </Suspense>
-              </div>
             </SurfaceCard>
           </div>
 
@@ -3543,12 +3798,10 @@ const inspectorFallbackStyle: React.CSSProperties = {
 };
 
 const timelineFallbackStyle: React.CSSProperties = {
-  height: "90px",
+  minHeight: "40px",
   display: "flex",
   alignItems: "center",
-  padding: "0 18px",
+  padding: "0 12px",
   color: GRAPH_THEME.ui.text.muted,
   fontSize: 12,
-  borderTop: `1px solid ${GRAPH_THEME.ui.timeline.border}`,
-  background: GRAPH_THEME.ui.timeline.background,
 };

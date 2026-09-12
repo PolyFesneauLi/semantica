@@ -34,6 +34,7 @@ import {
   resolveNodeElementStyle,
   resolveNodeVisualState,
 } from "./graphSceneState";
+import { assignIncidentEdgeLabelSides } from "./edgeHoverLabels";
 import { buildGraphAnalyticsSnapshot, computeGraphAnalyticsBase } from "./graphAnalytics";
 import {
   collectVisibleNodeSamples,
@@ -48,6 +49,7 @@ import {
 import {
   SEMANTICA_EDGE_PROGRAM_CLASSES,
   SEMANTICA_NODE_PROGRAM_CLASSES,
+  drawSemanticaEdgeLabel,
   drawSemanticaNodeHover,
   drawSemanticaNodeLabel,
 } from "./sigmaNativeRendering";
@@ -177,6 +179,7 @@ const SIGMA_SETTINGS = {
   edgeProgramClasses: SEMANTICA_EDGE_PROGRAM_CLASSES,
   defaultDrawNodeLabel: drawSemanticaNodeLabel,
   defaultDrawNodeHover: drawSemanticaNodeHover,
+  defaultDrawEdgeLabel: drawSemanticaEdgeLabel,
 };
 
 const DEBUG_GRAPH_RUNTIME = import.meta.env.DEV;
@@ -1075,6 +1078,22 @@ function applySceneState(
     edges?: string[];
   },
 ) {
+  const hoveredNodeId = reducerSceneStateRef.current.hoveredNodeId;
+  const hoverGraph = sigma.getGraph() as GraphSceneGraph;
+  const hoveredIncidentEdges: Array<{ id: string; source: string; target: string }> = [];
+  if (hoveredNodeId && hoverGraph.hasNode(hoveredNodeId)) {
+    hoverGraph.forEachEdge(hoveredNodeId, (edgeId, _attrs, source, target) => {
+      hoveredIncidentEdges.push({
+        id: String(edgeId),
+        source: String(source),
+        target: String(target),
+      });
+    });
+  }
+  const hoveredLabelSides = hoveredNodeId
+    ? assignIncidentEdgeLabelSides({ hoveredNodeId, edges: hoveredIncidentEdges })
+    : new Map<string, 1 | -1>();
+
   sigma.setSetting("nodeReducer", (node, data) => {
     const currentGraph = sigma.getGraph() as GraphSceneGraph;
     const currentState = reducerSceneStateRef.current;
@@ -1192,6 +1211,10 @@ function applySceneState(
         currentState.pathEdgeIds,
         currentState.highlightedIncidentEdgeIds,
       );
+    const isHoveredIncident = Boolean(
+      currentState.hoveredNodeId
+      && (String(source) === currentState.hoveredNodeId || String(target) === currentState.hoveredNodeId),
+    );
     const style = resolveEdgeElementStyle(
       GRAPH_THEME,
       currentState.zoomTier,
@@ -1202,6 +1225,7 @@ function applySceneState(
       currentState.viewMode,
       stableEdgeId,
       fullEdgeClass,
+      isHoveredIncident,
     );
     const distanceStyle = currentState.viewMode === "full"
       ? resolveDistanceEdgeStyle(
@@ -1228,6 +1252,8 @@ function applySceneState(
       // Use || rather than ?? so that an empty-string edgeType (possible
       // when the API returns type: "") does not produce a blank label.
       label: resolvedStyle.hidden ? undefined : String(attrs.edgeType || data.label || ""),
+      labelSide: isHoveredIncident ? hoveredLabelSides.get(stableEdgeId) ?? 1 : undefined,
+      forceLabel: isHoveredIncident && !resolvedStyle.hidden,
     };
   });
 

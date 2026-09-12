@@ -1,9 +1,10 @@
-﻿import { useEffect, useRef, useState, useCallback, useMemo } from "react";
+import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { DataSet } from "vis-data";
 import { Timeline } from "vis-timeline";
 import type { TimelineOptions } from "vis-timeline";
 import "vis-timeline/styles/vis-timeline-graph2d.css";
 import { GRAPH_THEME } from "./graphTheme";
+import { useSceneOverlayChrome } from "./exploreOverlayChrome";
 import { DEFAULT_MIN_DATE, resolvePlayStepMs, resolveScrubberBounds } from "./temporalScrubberBounds";
 
 export interface TimelinePanelProps {
@@ -61,84 +62,123 @@ export function TimelinePanel({ onTimeChange, minDate, maxDate }: TimelinePanelP
   const containerRef = useRef<HTMLDivElement>(null);
   const timelineRef = useRef<Timeline | null>(null);
   const playheadRef = useRef<Date>(DEFAULT_MIN_DATE);
+  const appliedTimeRef = useRef<Date>(DEFAULT_MIN_DATE);
   const playIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const onTimeChangeRef = useRef(onTimeChange);
   const [isPlaying, setIsPlaying] = useState(false);
   const [displayDate, setDisplayDate] = useState(formatPlayheadLabel(DEFAULT_MIN_DATE));
+  const [timelineMounted, setTimelineMounted] = useState(false);
+  const overlay = useSceneOverlayChrome();
+  const setDirtyDraft = overlay.setDirtyDraft;
 
-  // Captured once per mount so re-renders keep the same reference and do not
-  // retrigger the timeline effect below.
+  onTimeChangeRef.current = onTimeChange;
+
   const now = useMemo(() => new Date(), []);
   const { minBound, maxBound, defaultTime } = useMemo(
     () => resolveScrubberBounds({ minDate, maxDate, now }),
     [maxDate, minDate, now],
   );
 
+  const applyTime = useCallback((time: Date, options?: { preview?: boolean }) => {
+    playheadRef.current = time;
+    setDisplayDate(formatPlayheadLabel(time));
+    timelineRef.current?.setCustomTime(time, PLAYHEAD_ID);
+    onTimeChangeRef.current(time);
+    if (!options?.preview) {
+      appliedTimeRef.current = time;
+    }
+  }, []);
+
   useEffect(() => {
-    if (!containerRef.current) return;
+    playheadRef.current = defaultTime;
+    appliedTimeRef.current = defaultTime;
+    applyTime(defaultTime);
+  }, [applyTime, defaultTime]);
 
-    const timeline = timelineRef.current;
-    if (!timeline) {
-      const items = new DataSet([]);
-      const options: TimelineOptions = {
-        height: "100%",
-        min: minBound,
-        max: maxBound,
-        start: minBound,
-        end: maxBound,
-        showCurrentTime: false,
-        zoomable: true,
-        moveable: true,
-        zoomMin: ONE_DAY_MS,
-        zoomMax: 1000 * 60 * 60 * 24 * 365 * 80,
-        showMajorLabels: true,
-        showMinorLabels: true,
-        orientation: { axis: "bottom" },
-        margin: { item: 0, axis: 0 },
-        selectable: false,
-        stack: false,
-      } as TimelineOptions;
+  useEffect(() => {
+    if (!overlay.expanded) {
+      return;
+    }
+    setTimelineMounted(true);
+  }, [overlay.expanded]);
 
-      const nextTimeline = new Timeline(containerRef.current, items, options);
-      timelineRef.current = nextTimeline;
-      playheadRef.current = defaultTime;
-      nextTimeline.addCustomTime(defaultTime, PLAYHEAD_ID);
-      nextTimeline.on("timechange", (props: { id: string; time: Date }) => {
-        if (props.id !== PLAYHEAD_ID) return;
-        playheadRef.current = props.time;
-        nextTimeline.setCustomTime(props.time, PLAYHEAD_ID);
-        onTimeChange(props.time);
-        setDisplayDate(formatPlayheadLabel(props.time));
-      });
-      onTimeChange(defaultTime);
-      setDisplayDate(formatPlayheadLabel(defaultTime));
-      return () => {
-        nextTimeline.destroy();
-        timelineRef.current = null;
-      };
+  useEffect(() => {
+    if (!timelineMounted || !containerRef.current) {
+      return;
     }
 
-    timeline.setOptions({ min: minBound, max: maxBound, start: minBound, end: maxBound });
-    playheadRef.current = defaultTime;
-    timeline.setCustomTime(defaultTime, PLAYHEAD_ID);
-    onTimeChange(defaultTime);
-    setDisplayDate(formatPlayheadLabel(defaultTime));
-  }, [defaultTime, maxBound, minBound, onTimeChange]);
+    if (timelineRef.current) {
+      timelineRef.current.setOptions({ min: minBound, max: maxBound, start: minBound, end: maxBound });
+      timelineRef.current.setCustomTime(playheadRef.current, PLAYHEAD_ID);
+      timelineRef.current.redraw();
+      return;
+    }
+
+    const items = new DataSet([]);
+    const options: TimelineOptions = {
+      height: "100%",
+      min: minBound,
+      max: maxBound,
+      start: minBound,
+      end: maxBound,
+      showCurrentTime: false,
+      zoomable: true,
+      moveable: true,
+      zoomMin: ONE_DAY_MS,
+      zoomMax: 1000 * 60 * 60 * 24 * 365 * 80,
+      showMajorLabels: true,
+      showMinorLabels: true,
+      orientation: { axis: "bottom" },
+      margin: { item: 0, axis: 0 },
+      selectable: false,
+      stack: false,
+    } as TimelineOptions;
+
+    const nextTimeline = new Timeline(containerRef.current, items, options);
+    timelineRef.current = nextTimeline;
+    nextTimeline.addCustomTime(playheadRef.current, PLAYHEAD_ID);
+    nextTimeline.on("timechange", (props: { id: string; time: Date }) => {
+      if (props.id !== PLAYHEAD_ID) {
+        return;
+      }
+      applyTime(props.time, { preview: true });
+      setDirtyDraft(true);
+    });
+    nextTimeline.redraw();
+
+    return () => {
+      nextTimeline.destroy();
+      timelineRef.current = null;
+    };
+  }, [applyTime, maxBound, minBound, setDirtyDraft, timelineMounted]);
+
+  const restoreAppliedTime = useCallback(() => {
+    applyTime(appliedTimeRef.current);
+    overlay.setDirtyDraft(false);
+  }, [applyTime, overlay]);
+
+  const confirmPlayhead = useCallback(() => {
+    applyTime(playheadRef.current);
+    overlay.confirmAndCollapse();
+  }, [applyTime, overlay]);
+
+  const discardPlayhead = useCallback(() => {
+    restoreAppliedTime();
+    overlay.discardAndCollapse();
+  }, [overlay, restoreAppliedTime]);
 
   const startPlay = useCallback(() => {
-    if (playIntervalRef.current) return;
+    if (playIntervalRef.current) {
+      return;
+    }
     playIntervalRef.current = setInterval(() => {
-      const timeline = timelineRef.current;
-      if (!timeline) return;
       const next = new Date(playheadRef.current.getTime() + resolvePlayStepMs(minBound, maxBound));
       if (next >= maxBound) {
         next.setTime(minBound.getTime());
       }
-      playheadRef.current = next;
-      timeline.setCustomTime(next, PLAYHEAD_ID);
-      onTimeChange(next);
-      setDisplayDate(formatPlayheadLabel(next));
+      applyTime(next);
     }, PLAY_INTERVAL_MS);
-  }, [maxBound, minBound, onTimeChange]);
+  }, [applyTime, maxBound, minBound]);
 
   const stopPlay = useCallback(() => {
     if (playIntervalRef.current) {
@@ -160,14 +200,44 @@ export function TimelinePanel({ onTimeChange, minDate, maxDate }: TimelinePanelP
 
   useEffect(() => () => stopPlay(), [stopPlay]);
 
+  useEffect(() => {
+    if (!overlay.expanded) {
+      return;
+    }
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") {
+        return;
+      }
+      event.preventDefault();
+      if (overlay.dirtyDraft) {
+        discardPlayhead();
+        return;
+      }
+      overlay.discardAndCollapse();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [discardPlayhead, overlay]);
+
   return (
-    <div style={{ position: "relative", width: "100%", height: "90px", borderTop: `1px solid ${GRAPH_THEME.ui.timeline.border}`, background: GRAPH_THEME.ui.timeline.background, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", display: "flex", alignItems: "stretch", flexShrink: 0 }}>
+    <div
+      ref={overlay.rootRef}
+      className="explore-temporal-chrome"
+      data-expanded={overlay.expanded ? "true" : "false"}
+      aria-expanded={overlay.expanded}
+      onPointerEnter={overlay.onPointerEnter}
+      onPointerLeave={overlay.onPointerLeave}
+      onFocusCapture={overlay.onFocusCapture}
+      onBlurCapture={overlay.onBlurCapture}
+    >
       <style>{VIS_OVERRIDE_CSS}</style>
-      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4, padding: "0 16px", borderRight: `1px solid ${GRAPH_THEME.ui.timeline.border}`, minWidth: 80, flexShrink: 0 }}>
+      <div className="explore-temporal-compact" onPointerUp={overlay.onCompactPointerUp}>
         <button
           id="temporal-play-btn"
+          type="button"
           onClick={togglePlay}
           title={isPlaying ? "Pause Evolution" : "Play Evolution"}
+          aria-label={isPlaying ? "Pause Evolution" : "Play Evolution"}
           style={{ width: 34, height: 34, borderRadius: "50%", border: `1.5px solid ${isPlaying ? GRAPH_THEME.ui.control.activeBorder : GRAPH_THEME.ui.control.defaultBorder}`, background: isPlaying ? GRAPH_THEME.ui.timeline.playheadSoft : GRAPH_THEME.ui.control.defaultBg, color: GRAPH_THEME.ui.timeline.playhead, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.2s", boxShadow: isPlaying ? "0 0 10px rgba(98, 226, 205, 0.32)" : "none" }}
         >
           {isPlaying ? (
@@ -181,12 +251,18 @@ export function TimelinePanel({ onTimeChange, minDate, maxDate }: TimelinePanelP
         </span>
       </div>
 
-      <div style={{ position: "absolute", top: 5, left: 100, fontSize: 10, fontWeight: 600, letterSpacing: "0.1em", color: GRAPH_THEME.ui.text.subtle, textTransform: "uppercase", pointerEvents: "none", zIndex: 2 }}>
-        Temporal Scrubber · {minBound.getFullYear()}-{maxBound.getFullYear()}
-      </div>
-
-      <div className="sem-timeline-wrap" style={{ flex: 1, overflow: "hidden", position: "relative" }}>
-        <div ref={containerRef} style={{ width: "100%", height: "100%", position: "relative" }} />
+      <div className="explore-temporal-dropdown" hidden={!overlay.expanded}>
+        <div className="explore-temporal-dropdown-label">
+          Temporal Scrubber · {minBound.getFullYear()}-{maxBound.getFullYear()}
+        </div>
+        <div className="sem-timeline-wrap" style={{ flex: 1, overflow: "hidden", position: "relative", minHeight: 90 }}>
+          <div ref={containerRef} style={{ width: "100%", height: "100%", position: "relative", minHeight: 90 }} />
+        </div>
+        {overlay.dirtyDraft ? (
+          <button type="button" className="explore-temporal-confirm" onClick={confirmPlayhead}>
+            Confirm
+          </button>
+        ) : null}
       </div>
     </div>
   );
