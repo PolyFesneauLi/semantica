@@ -1,0 +1,23 @@
+---
+description: Fork-only push/PR policy — never touch semantica-agi; sync FROM upstream only
+alwaysApply: true
+---
+
+# Fork remote & PR policy
+
+This clone works on **PolyFesneauLi/semantica** only.
+
+## Remotes
+
+| Remote | Repo | Allowed |
+| --- | --- | --- |
+| `origin` | `PolyFesneauLi/semantica` | fetch + **push** + PRs |
+| `upstream` | `semantica-agi/semantica` | **fetch only** (pull latest into the fork workflow) |
+
+## Hard rules for the agent
+
+1. **Never push** to `semantica-agi/semantica` (no `git push upstream`, no PR targeting that org unless the user explicitly overrides in writing).
+2. **All PRs** mean GitHub PRs **within the fork** (base/head both under `PolyFesneauLi/semantica`), e.g. `lty_branch` → `main` on the fork — not upstream `semantica-agi/semantica`.
+3. To refresh from upstream: `git fetch upstream` then merge/rebase `upstream/main` into the current fork branch; push the result only to `origin`.
+4. If `upstream` push URL is set to a disable sentinel, do not “fix” it to enable push.
+5. Default push target is always `origin` / `origin/<current-branch>` when `LOCAL ≠ main` policy allows.
