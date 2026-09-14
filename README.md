@@ -1449,17 +1449,19 @@ Bundles for Claude Code, Cursor, Codex, Windsurf, Cline, Continue, VS Code, and 
 
 ## Knowledge Explorer
 
-A browser-based graph workbench. Pan and zoom live graphs, scrub the timeline, review every decision's causal chain, resolve duplicates, and author your ontology visually. Built on React 19 + Sigma.js.
+A browser-based graph workbench. The left **app rail** switches workspaces: **SKE** returns to the welcome landing; then **Knowledge Explorer**, **Analyze**, **Decisions**, **Enrich**, **Manage**, and **Ontology Hub**. Built on React 19 + Sigma.js.
 
-| Workspace | What you can do |
+| Rail control | What you can do |
 | --- | --- |
-| **Knowledge Graph** | Live Sigma.js canvas with ForceAtlas2 layout, Ego Mode, semantic distance heatmap |
-| **Timeline** | Scrub through temporal events and watch the graph evolve |
-| **Decisions** | Browse the causal chain behind every recorded decision |
-| **Registry** | Live audit log of every graph mutation |
-| **Entity Resolution** | Review and merge duplicates |
-| **Ontology Hub** | SHACL Studio, visual editor, cross-ontology alignments, SKOS browser |
-| **Lineage** | W3C PROV-O provenance visualization for any entity |
+| **SKE** | Welcome landing and workspace launchers |
+| **Knowledge Explorer** | Live Sigma canvas, timeline scrub, optional Memories, SKOS Vocabulary Browser |
+| **Analyze** | Reasoning Playground and read-only SPARQL Querying |
+| **Decisions** | Browse decision nodes, causal chains, and precedents |
+| **Enrich** | Import/export JSON·CSV, merge duplicates, entity resolution, mutation registry |
+| **Manage** | PROV-O lineage, KG overview, ontology summary |
+| **Ontology Hub** | Registry, visual editor, versions, alignments, health, SHACL Studio |
+
+Full per-workspace **input and output formats**: **[explorer/README.md — Workspaces (app rail)](explorer/README.md#workspaces-app-rail)**.
 
 Quickest way to start (no Node.js required):
 
