@@ -124,5 +124,8 @@ semantica/static/
 demo_out/
 .kiro/
 
+# Local extract / graph artifacts (mirrored from input/)
+output/
+
 # Worktrees
 .worktrees/

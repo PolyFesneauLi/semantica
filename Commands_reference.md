@@ -24,9 +24,10 @@ cd D:\semantica
 | `SEMANTICA_EXTRACT_MODEL` | LLM 模型名 | `deepseek-chat` |
 | `SEMANTICA_EXTRACT_CONFIDENCE` | 最低置信度 | `0.5` |
 | `SEMANTICA_EXTRACT_FORMAT` | 抽取结果格式 | `json` |
-| `SEMANTICA_EXTRACT_GRAPH_OUTPUT` | Explorer 用的 ContextGraph JSON | `demos/smoke_deepseek_graph.json` |
-| `SEMANTICA_EXTRACT_OUTPUT` | （可选）原始抽取 JSON | 注释掉则只打 stdout |
-| `SEMANTICA_EXPLORER_GRAPH` | Explorer 默认图文件 | 同上 graph 输出 |
+| `SEMANTICA_OUTPUT_DIR` | 产物根目录 | `output` |
+| `SEMANTICA_EXTRACT_OUTPUT` | 原始抽取 JSON | 未设则自动：`output/extract/.../<stem>_extract.json` |
+| `SEMANTICA_EXTRACT_GRAPH_OUTPUT` | ContextGraph JSON | 未设则自动：`output/graph/.../<stem>_graph.json` |
+| `SEMANTICA_EXPLORER_GRAPH` | Explorer 默认图 | 未设则按 `SEMANTICA_EXTRACT_INPUT` 推导到 `output/graph/...` |
 | `SEMANTICA_EXPLORER_PORT` | 端口 | `8000` |
 | `SEMANTICA_EXPLORER_HOST` | 绑定地址 | `127.0.0.1` |
 | `SEMANTICA_ALLOW_ANONYMOUS` | 本机匿名访问图 API | `true` |
@@ -53,7 +54,15 @@ semantica-explorer
 
 ```powershell
 semantica extract input/acme_contract.txt
-semantica-explorer
+semantica-explorer   # 自动加载 output/graph/acme_contract_graph.json
+```
+
+产物路径示例：
+
+```text
+input/odyssey/Synopsis_Odyssey_Title.txt
+→ output/extract/odyssey/Synopsis_Odyssey_Title_extract.json
+→ output/graph/odyssey/Synopsis_Odyssey_Title_graph.json
 ```
 
 等价写法：
@@ -86,8 +95,8 @@ python -m semantica.explorer
 | `--model` | `SEMANTICA_EXTRACT_MODEL` | 如 `deepseek-chat` |
 | `--confidence` | `SEMANTICA_EXTRACT_CONFIDENCE` | `0.0`–`1.0` |
 | `--format` | `SEMANTICA_EXTRACT_FORMAT` | `json` `yaml` `table` `rdf` |
-| `--output` | `SEMANTICA_EXTRACT_OUTPUT` | 原始抽取结果文件 |
-| `--graph-output` | `SEMANTICA_EXTRACT_GRAPH_OUTPUT` | ContextGraph JSON（给 Explorer） |
+| `--output` | `SEMANTICA_EXTRACT_OUTPUT` | 原始抽取；文件输入且未设时自动落到 `output/extract/` |
+| `--graph-output` | `SEMANTICA_EXTRACT_GRAPH_OUTPUT` | ContextGraph；文件输入且未设时自动落到 `output/graph/` |
 | `--temporal` | — | 仅 triplets 等路径的时间边界（flag） |
 
 **原则：** 与 `.env` 相同的值不必再写在命令行。
@@ -169,7 +178,10 @@ input/                          # 样例 / 待抽取纯文本
     Full_Odyssey_Title.txt      # Odyssey 维基单页拼接稿
     {section}_Odyssey_Title.txt # 按 H2 切分的章节
     SOURCE.md                   # URL / 许可 / 抓取日期
-demos/smoke_deepseek_graph.json # extract --graph-output 默认产物
+output/
+  extract/                      # 镜像 input 结构，<stem>_extract.json
+  graph/                        # 镜像 input 结构，<stem>_graph.json
+demos/smoke_deepseek_graph.json # 可选烟雾样例（不再作为默认产物）
 .env                            # 密钥 + CLI/Explorer 默认参数
 ```
 

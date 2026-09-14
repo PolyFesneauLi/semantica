@@ -593,6 +593,7 @@ class TestExtract:
             "SEMANTICA_EXTRACT_FORMAT",
             "SEMANTICA_EXTRACT_OUTPUT",
             "SEMANTICA_EXTRACT_GRAPH_OUTPUT",
+            "SEMANTICA_OUTPUT_DIR",
         ):
             monkeypatch.delenv(key, raising=False)
 
@@ -638,6 +639,47 @@ class TestExtract:
         result = runner.invoke(cli_module.main, ["--quiet", "extract"])
         _ok(result)
         assert graph_path.is_file()
+
+    def test_auto_output_layout_mirrors_input(self, runner, monkeypatch, tmp_path):
+        from semantica.semantic_extract.types import Entity, Relation
+
+        monkeypatch.chdir(tmp_path)
+        sample = tmp_path / "input" / "odyssey" / "Synopsis_Odyssey_Title.txt"
+        sample.parent.mkdir(parents=True)
+        sample.write_text("Odysseus returns to Ithaca.", encoding="utf-8")
+        alice = Entity(text="Odysseus", label="PERSON", start_char=0, end_char=8, confidence=0.9)
+        ithaca = Entity(text="Ithaca", label="LOC", start_char=20, end_char=26, confidence=0.9)
+        rel = Relation(subject=alice, predicate="returns_to", object=ithaca, confidence=0.9)
+        fake_ext = _fake_module(
+            NERExtractor=lambda **kw: MagicMock(extract=lambda text, **kw2: [alice, ithaca]),
+            RelationExtractor=lambda **kw: MagicMock(
+                extract=lambda text, entities=None, **kw2: [rel]
+            ),
+            TripletExtractor=lambda **kw: MagicMock(extract=lambda text, **kw2: []),
+            EventDetector=lambda **kw: MagicMock(extract=lambda text, **kw2: []),
+        )
+        monkeypatch.setitem(
+            __import__("sys").modules, "semantica.semantic_extract", fake_ext
+        )
+        result = runner.invoke(
+            cli_module.main,
+            [
+                "--quiet",
+                "extract",
+                str(sample),
+                "--mode",
+                "all",
+                "--method",
+                "pattern",
+            ],
+        )
+        _ok(result)
+        extract_path = tmp_path / "output" / "extract" / "odyssey" / "Synopsis_Odyssey_Title_extract.json"
+        graph_path = tmp_path / "output" / "graph" / "odyssey" / "Synopsis_Odyssey_Title_graph.json"
+        assert extract_path.is_file()
+        assert graph_path.is_file()
+        data = json.loads(graph_path.read_text(encoding="utf-8"))
+        assert len(data.get("nodes", [])) >= 2
 
     def test_graph_output_from_relations(self, runner, monkeypatch, tmp_path):
         from semantica.semantic_extract.types import Entity, Relation

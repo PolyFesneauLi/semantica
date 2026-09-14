@@ -44,10 +44,13 @@ def main(argv=None):
 
     import os
 
+    from semantica.output_layout import default_graph_for_extract_input
+
+    derived = default_graph_for_extract_input()
     default_graph = (
         os.environ.get("SEMANTICA_EXPLORER_GRAPH")
         or os.environ.get("SEMANTICA_EXTRACT_GRAPH_OUTPUT")
-        or None
+        or (str(derived) if derived is not None else None)
     )
     default_port = int(os.environ.get("SEMANTICA_EXPLORER_PORT") or "8000")
     default_host = os.environ.get("SEMANTICA_EXPLORER_HOST") or "127.0.0.1"
@@ -61,7 +64,8 @@ def main(argv=None):
         default=default_graph,
         required=default_graph is None,
         help="Path to a ContextGraph JSON file to load "
-             "(env: SEMANTICA_EXPLORER_GRAPH).",
+             "(env: SEMANTICA_EXPLORER_GRAPH, SEMANTICA_EXTRACT_GRAPH_OUTPUT, "
+             "or derived from SEMANTICA_EXTRACT_INPUT).",
     )
     parser.add_argument(
         "--port", "-p",

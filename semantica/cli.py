@@ -1939,10 +1939,15 @@ def normalize(cli_ctx: CLIContext, input_text: str, mode: str, domain: str,
               default="json", show_default=True)
 @click.option("--output", default=None, type=click.Path(),
               envvar="SEMANTICA_EXTRACT_OUTPUT",
-              help="Write raw extraction JSON/YAML to this path.")
+              help="Write raw extraction JSON/YAML to this path. "
+                   "When omitted and INPUT is a file, defaults to "
+                   "output/extract/<mirrored-input>/<stem>_extract.<ext> "
+                   "(env: SEMANTICA_EXTRACT_OUTPUT; root: SEMANTICA_OUTPUT_DIR).")
 @click.option("--graph-output", "graph_output", default=None, type=click.Path(),
               envvar="SEMANTICA_EXTRACT_GRAPH_OUTPUT",
-              help="Write a ContextGraph JSON for semantica-explorer "
+              help="Write a ContextGraph JSON for semantica-explorer. "
+                   "When omitted and INPUT is a file, defaults to "
+                   "output/graph/<mirrored-input>/<stem>_graph.json "
                    "(env: SEMANTICA_EXTRACT_GRAPH_OUTPUT).")
 @click.option("--json", "local_json", is_flag=True, default=False)
 @click.pass_obj
@@ -1957,6 +1962,8 @@ def extract(
     Defaults come from ``.env`` / process env (``SEMANTICA_EXTRACT_*``).
     Pass only values you want to override.
 
+    File inputs default to writing both extract and graph under ``output/``.
+
     \b
     Examples:
       semantica extract
@@ -1968,6 +1975,8 @@ def extract(
     cli_ctx = _require_ctx(cli_ctx)
 
     def _action() -> None:
+        from .output_layout import derive_extract_path, derive_graph_path
+
         resolved_input = input_path or os.environ.get("SEMANTICA_EXTRACT_INPUT") or ""
         resolved_input = resolved_input.strip()
         if not resolved_input:
@@ -1979,11 +1988,25 @@ def extract(
                 "--method llm requires --provider or SEMANTICA_EXTRACT_PROVIDER "
                 "(e.g. deepseek)."
             )
+        source_file: Optional[Path] = None
         if resolved_input == "-":
             text = sys.stdin.read()
         else:
             p = Path(resolved_input)
-            text = p.read_text(encoding="utf-8") if p.exists() else resolved_input
+            if p.exists() and p.is_file():
+                source_file = p
+                text = p.read_text(encoding="utf-8")
+            else:
+                text = resolved_input
+
+        effective_output = output
+        effective_graph = graph_output
+        if source_file is not None:
+            if effective_output is None:
+                effective_output = str(derive_extract_path(source_file, fmt=fmt))
+            if effective_graph is None and mode != "events":
+                effective_graph = str(derive_graph_path(source_file))
+
         try:
             from .semantic_extract import (
                 NERExtractor,
@@ -2044,15 +2067,17 @@ def extract(
         except ImportError as exc:
             raise click.ClickException(f"Extract module not available: {exc}") from exc
 
-        if graph_output:
+        if effective_graph:
             graph_payload = _build_context_graph_from_extraction(result, mode)
-            Path(graph_output).write_text(
+            graph_path = Path(effective_graph)
+            graph_path.parent.mkdir(parents=True, exist_ok=True)
+            graph_path.write_text(
                 json.dumps(graph_payload, indent=2, default=str),
                 encoding="utf-8",
             )
             _ok(
                 cli_ctx,
-                f"Wrote ContextGraph {graph_output} "
+                f"Wrote ContextGraph {effective_graph} "
                 f"({len(graph_payload['nodes'])} nodes, "
                 f"{len(graph_payload['edges'])} edges)",
             )
@@ -2068,9 +2093,11 @@ def extract(
             text_out = yaml.dump(serialized, default_flow_style=False)
         else:
             text_out = str(serialized)
-        if output:
-            Path(output).write_text(text_out, encoding="utf-8")
-            _ok(cli_ctx, f"Wrote {output}")
+        if effective_output:
+            out_path = Path(effective_output)
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            out_path.write_text(text_out, encoding="utf-8")
+            _ok(cli_ctx, f"Wrote {effective_output}")
         else:
             click.echo(text_out)
 
@@ -4880,7 +4907,8 @@ def explorer(ctx: click.Context) -> None:
 @click.option("--graph", default=None, type=click.Path(),
               envvar="SEMANTICA_EXPLORER_GRAPH",
               help="ContextGraph JSON to preload "
-                   "(env: SEMANTICA_EXPLORER_GRAPH or SEMANTICA_EXTRACT_GRAPH_OUTPUT).")
+                   "(env: SEMANTICA_EXPLORER_GRAPH, SEMANTICA_EXTRACT_GRAPH_OUTPUT, "
+                   "or derived from SEMANTICA_EXTRACT_INPUT under output/graph/).")
 @click.pass_obj
 def explorer_start(cli_ctx: CLIContext, port: Optional[int], api_url: str,
                    graph: Optional[str]) -> None:
@@ -4889,24 +4917,29 @@ def explorer_start(cli_ctx: CLIContext, port: Optional[int], api_url: str,
     \b
     Examples:
       semantica explorer start
-      semantica explorer start --graph demos/smoke_deepseek_graph.json
+      semantica explorer start --graph output/graph/alice_semantica_graph.json
     """
     cli_ctx = _require_ctx(cli_ctx)
 
     def _action() -> None:
         import subprocess as sp
 
+        from .output_layout import default_graph_for_extract_input
+
         resolved_port = port or int(os.environ.get("SEMANTICA_EXPLORER_PORT") or "8000")
+        derived = default_graph_for_extract_input()
         resolved_graph = (
             graph
             or os.environ.get("SEMANTICA_EXPLORER_GRAPH")
             or os.environ.get("SEMANTICA_EXTRACT_GRAPH_OUTPUT")
+            or (str(derived) if derived is not None else "")
             or ""
         ).strip()
         if not resolved_graph:
             raise click.ClickException(
                 "Provide --graph or set SEMANTICA_EXPLORER_GRAPH / "
-                "SEMANTICA_EXTRACT_GRAPH_OUTPUT in .env."
+                "SEMANTICA_EXTRACT_GRAPH_OUTPUT, or set SEMANTICA_EXTRACT_INPUT "
+                "so the graph path can be derived under output/graph/."
             )
         if not Path(resolved_graph).is_file():
             raise click.ClickException(f"Graph file not found: {resolved_graph}")
