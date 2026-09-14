@@ -78,6 +78,36 @@ export function offsetPointAlongNormal(args: {
   };
 }
 
+function curveControlPoint(args: {
+  source: { x: number; y: number };
+  target: { x: number; y: number };
+  curvature: number;
+}): { x: number; y: number } {
+  const dx = args.target.x - args.source.x;
+  const dy = args.target.y - args.source.y;
+  const length = Math.hypot(dx, dy) || 1;
+  const nx = -dy / length;
+  const ny = dx / length;
+  const offset = length * args.curvature;
+  return {
+    x: (args.source.x + args.target.x) / 2 + nx * offset,
+    y: (args.source.y + args.target.y) / 2 + ny * offset,
+  };
+}
+
+function quadraticPoint(
+  source: { x: number; y: number },
+  control: { x: number; y: number },
+  target: { x: number; y: number },
+  t: number,
+): { x: number; y: number } {
+  const mt = 1 - t;
+  return {
+    x: mt * mt * source.x + 2 * mt * t * control.x + t * t * target.x,
+    y: mt * mt * source.y + 2 * mt * t * control.y + t * t * target.y,
+  };
+}
+
 export function resolveBidirectionalLabelPlacement(args: {
   source: { x: number; y: number };
   target: { x: number; y: number };
@@ -85,16 +115,50 @@ export function resolveBidirectionalLabelPlacement(args: {
   labelWidth: number;
   labelHeight: number;
   minGap: number;
+  /**
+   * Endpoint ids for the *directed* edge being drawn. Lex ±`side` from
+   * {@link assignIncidentEdgeLabelSides} is remapped into this edge's own
+   * S→T frame so reverse edges do not cancel into one geometric side.
+   */
+  sourceId?: string;
+  targetId?: string;
+  /** Sigma / theme curvature along this directed edge. */
+  curvature?: number;
 }): { x: number; y: number; angle: number } {
-  const length = Math.hypot(args.target.x - args.source.x, args.target.y - args.source.y);
+  const source = args.source;
+  const target = args.target;
+  const curvature = args.curvature ?? 0;
+  // assignIncidentEdgeLabelSides tags sides in the undirected lex frame.
+  // Directed drawing uses S→T normals; flip when this edge is lex-reversed.
+  const displaySide: EdgeLabelSide = (
+    args.sourceId && args.targetId && args.sourceId > args.targetId
+      ? -args.side
+      : args.side
+  ) as EdgeLabelSide;
+
+  const length = Math.hypot(target.x - source.x, target.y - source.y);
   const alongT = length < args.labelWidth * 2
-    ? (args.side === 1 ? 0.38 : 0.62)
-    : 0.5;
-  const gap = Math.max(args.minGap, args.labelHeight / 2 + 6);
+    ? (args.side === 1 ? 0.34 : 0.66)
+    : (args.side === 1 ? 0.4 : 0.6);
+  const gap = Math.max(args.minGap, args.labelHeight + 10);
+
+  if (Math.abs(curvature) > 1e-6) {
+    const control = curveControlPoint({ source, target, curvature });
+    const onCurve = quadraticPoint(source, control, target, alongT);
+    const dx = target.x - source.x;
+    const dy = target.y - source.y;
+    const inv = Math.hypot(dx, dy) || 1;
+    return {
+      x: onCurve.x + (-dy / inv) * gap * displaySide,
+      y: onCurve.y + (dx / inv) * gap * displaySide,
+      angle: Math.atan2(dy, dx),
+    };
+  }
+
   const point = offsetPointAlongNormal({
-    source: args.source,
-    target: args.target,
-    side: args.side,
+    source,
+    target,
+    side: displaySide,
     gap,
     alongT,
   });

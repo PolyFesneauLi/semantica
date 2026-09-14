@@ -85,6 +85,13 @@ export function useSceneOverlayChrome() {
     setPinned((current) => !current);
   }, []);
 
+  const pinOpen = useCallback(() => {
+    clearLeaveTimer();
+    setForceCollapsed(false);
+    setPinned(true);
+    setHovered(true);
+  }, [clearLeaveTimer]);
+
   const confirmAndCollapse = useCallback(() => {
     clearLeaveTimer();
     setDirtyDraft(false);
@@ -143,6 +150,7 @@ export function useSceneOverlayChrome() {
     onFocusCapture,
     onBlurCapture,
     onCompactPointerUp,
+    pinOpen,
     confirmAndCollapse,
     discardAndCollapse,
     collapseIfIdle,

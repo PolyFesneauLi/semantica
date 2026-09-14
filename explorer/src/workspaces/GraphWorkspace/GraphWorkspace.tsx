@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useMemo, useRef, useState, type ComponentType, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type ComponentType, type ReactNode, type RefObject } from "react";
 import {
   Activity,
   Clock3,
@@ -297,12 +297,14 @@ function SearchCommandBar({
   onChange,
   onSubmit,
   onSelectSuggestion,
+  inputRef,
 }: {
   value: string;
   disabled: boolean;
   onChange: (value: string) => void;
   onSubmit: () => void;
   onSelectSuggestion: (result: SearchResult) => void;
+  inputRef?: RefObject<HTMLInputElement | null>;
 }) {
   const [suggestions, setSuggestions] = useState<SearchResult[]>([]);
   const [suggestionsOpen, setSuggestionsOpen] = useState(false);
@@ -396,6 +398,7 @@ function SearchCommandBar({
     >
       <Search size={17} strokeWidth={2.15} aria-hidden />
       <input
+        ref={inputRef}
         value={value}
         onChange={(event) => onChange(event.target.value)}
         onFocus={() => {
@@ -1487,6 +1490,7 @@ export function GraphWorkspace({ externalFocusNodeId, externalFocusToken, onDirt
   const [egoDraftHops, setEgoDraftHops] = useState(3);
   const commandOverlay = useSceneOverlayChrome();
   const compactRowRef = useRef<HTMLDivElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const egoDirty = egoModeEnabled && egoDraftHops !== egoMaxHops;
 
   useEffect(() => {
@@ -1496,6 +1500,13 @@ export function GraphWorkspace({ externalFocusNodeId, externalFocusToken, onDirt
   useEffect(() => {
     commandOverlay.setDirtyDraft(egoDirty);
   }, [commandOverlay.setDirtyDraft, egoDirty]);
+
+  const openSearchChrome = useCallback(() => {
+    commandOverlay.pinOpen();
+    window.setTimeout(() => {
+      searchInputRef.current?.focus();
+    }, 0);
+  }, [commandOverlay]);
 
   const confirmCommandDraft = useCallback(() => {
     if (egoModeEnabled) {
@@ -3362,10 +3373,14 @@ export function GraphWorkspace({ externalFocusNodeId, externalFocusToken, onDirt
                         className="explore-command-search-affordance"
                         aria-label="Open search"
                         title="Search command, node, or concept"
+                        onClick={openSearchChrome}
                       >
                         <Search size={15} strokeWidth={2.15} aria-hidden />
                       </button>
-                      <div className="explore-command-compact-tools" inert={commandOverlay.expanded || undefined}>
+                      <div
+                        className="explore-command-compact-tools"
+                        {...(commandOverlay.expanded ? { inert: true } : {})}
+                      >
                         <SegmentedModeControl items={viewModeItems} compact />
                         <div className="explore-toolbelt">
                           {toolbarClusters.filter((group) => group.id !== "distance" && group.id !== "local-structure").map((group) => (
@@ -3385,6 +3400,7 @@ export function GraphWorkspace({ externalFocusNodeId, externalFocusToken, onDirt
                         <SearchCommandBar
                           value={searchQuery}
                           disabled={searchDisabled}
+                          inputRef={searchInputRef}
                           onChange={setSearchQuery}
                           onSubmit={() => void handleSearch()}
                           onSelectSuggestion={(result) => {

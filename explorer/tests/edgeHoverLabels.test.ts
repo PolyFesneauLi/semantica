@@ -67,6 +67,107 @@ test("short near-axis bidirectional labels do not overlap", () => {
   assert.notEqual(above.y, below.y);
 });
 
+test("directed reverse edge with lex ±side lands on opposite geometric side", () => {
+  // Mirrors Sigma: each directed edge passes its own S→T coordinates, while
+  // assignIncidentEdgeLabelSides tags lex(source<source) as +1 / reverse as -1.
+  const a = { x: 0, y: 0 };
+  const b = { x: 120, y: 0 };
+  const sides = assignIncidentEdgeLabelSides({
+    hoveredNodeId: "odysseus",
+    edges: [
+      { id: "fwd", source: "odysseus", target: "penelope" },
+      { id: "rev", source: "penelope", target: "odysseus" },
+    ],
+  });
+  const fwd = resolveBidirectionalLabelPlacement({
+    source: a,
+    target: b,
+    side: sides.get("fwd") ?? 1,
+    labelWidth: 80,
+    labelHeight: 18,
+    minGap: 10,
+    sourceId: "odysseus",
+    targetId: "penelope",
+  });
+  const rev = resolveBidirectionalLabelPlacement({
+    source: b,
+    target: a,
+    side: sides.get("rev") ?? 1,
+    labelWidth: 80,
+    labelHeight: 18,
+    minGap: 10,
+    sourceId: "penelope",
+    targetId: "odysseus",
+  });
+  assert.notEqual(fwd.y, rev.y);
+  assert.equal(
+    labelBoxesOverlap(
+      { x: fwd.x - 40, y: fwd.y - 9, width: 80, height: 18 },
+      { x: rev.x - 40, y: rev.y - 9, width: 80, height: 18 },
+    ),
+    false,
+  );
+});
+
+test("without id remapping, directed ±side collapses onto one side (regression guard)", () => {
+  const a = { x: 0, y: 0 };
+  const b = { x: 120, y: 0 };
+  const brokenFwd = resolveBidirectionalLabelPlacement({
+    source: a,
+    target: b,
+    side: 1,
+    labelWidth: 80,
+    labelHeight: 18,
+    minGap: 10,
+  });
+  const brokenRev = resolveBidirectionalLabelPlacement({
+    source: b,
+    target: a,
+    side: -1,
+    labelWidth: 80,
+    labelHeight: 18,
+    minGap: 10,
+  });
+  // Same geometric side when normals flip with the edge and sides are ±1.
+  assert.equal(brokenFwd.y, brokenRev.y);
+});
+
+test("same signed curvature on reverse directed edges still splits labels", () => {
+  const a = { x: 0, y: 0 };
+  const b = { x: 160, y: 0 };
+  const pos = resolveBidirectionalLabelPlacement({
+    source: a,
+    target: b,
+    side: 1,
+    labelWidth: 96,
+    labelHeight: 18,
+    minGap: 10,
+    sourceId: "person_odysseus",
+    targetId: "unknown_suitors",
+    curvature: 0.18,
+  });
+  const neg = resolveBidirectionalLabelPlacement({
+    source: b,
+    target: a,
+    side: -1,
+    labelWidth: 96,
+    labelHeight: 18,
+    minGap: 10,
+    sourceId: "unknown_suitors",
+    targetId: "person_odysseus",
+    curvature: 0.18,
+  });
+  assert.ok(pos.y * neg.y < 0);
+  assert.equal(
+    labelBoxesOverlap(
+      { x: pos.x - 48, y: pos.y - 9, width: 96, height: 18 },
+      { x: neg.x - 48, y: neg.y - 9, width: 96, height: 18 },
+    ),
+    false,
+  );
+});
+
+
 test("overlay stays collapsed until hover, focus, pin, or a dirty draft", () => {
   assert.equal(isOverlayExpanded({
     hovered: false,

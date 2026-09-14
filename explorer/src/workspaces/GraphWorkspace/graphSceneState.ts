@@ -1761,7 +1761,10 @@ function resolveEdgeCurvature(
   }
 
   if ((edgeVariant === "bidirectionalCurve" || edgeVariant === "parallelCurve" || attrs.isBidirectional) && sourceId && targetId) {
-    return sourceId.localeCompare(targetId) <= 0 ? baseCurvature : -baseCurvature;
+    // Keep the SAME signed curvature for both directed edges. Flipping the
+    // sign with localeCompare cancels the perpendicular flip of S↔T and
+    // draws A→B and B→A on the same arc (labels then stack).
+    return baseCurvature;
   }
 
   return baseCurvature;

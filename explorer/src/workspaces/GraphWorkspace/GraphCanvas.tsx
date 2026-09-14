@@ -165,9 +165,8 @@ const SIGMA_SETTINGS = {
   hideEdgesOnMove: true,
   enableEdgeEvents: true,
   // #1009: edge labels (the edge `type` — "works_for", "leads", ...) were
-  // hardcoded off, so edge text never rendered regardless of data. The
-  // labelDensity / labelGridCellSize / labelRenderedSizeThreshold settings
-  // below already throttle label density for both nodes and edges.
+  // hardcoded off, so edge text never rendered regardless of data. Idle
+  // edges keep label="" in the reducer so zoom does not leak plain labels.
   renderEdgeLabels: true,
   labelDensity: 0.7,
   labelGridCellSize: 140,
@@ -1251,8 +1250,12 @@ function applySceneState(
       // saw, so enabling renderEdgeLabels alone left edges blank.
       // Use || rather than ?? so that an empty-string edgeType (possible
       // when the API returns type: "") does not produce a blank label.
-      label: resolvedStyle.hidden ? undefined : String(attrs.edgeType || data.label || ""),
+      label: isHoveredIncident && !resolvedStyle.hidden
+        ? String(attrs.edgeType || data.label || "")
+        : "",
       labelSide: isHoveredIncident ? hoveredLabelSides.get(stableEdgeId) ?? 1 : undefined,
+      labelSourceId: String(source),
+      labelTargetId: String(target),
       forceLabel: isHoveredIncident && !resolvedStyle.hidden,
     };
   });

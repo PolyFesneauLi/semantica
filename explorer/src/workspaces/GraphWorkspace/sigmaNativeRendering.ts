@@ -1,5 +1,5 @@
-import EdgeCurveProgram, { EdgeCurvedArrowProgram } from "@sigma/edge-curve";
-import { NodeProgram, type ProgramInfo } from "sigma/rendering";
+import { createEdgeCurveProgram } from "@sigma/edge-curve";
+import { NodeProgram, type ProgramInfo, DEFAULT_EDGE_ARROW_HEAD_PROGRAM_OPTIONS } from "sigma/rendering";
 import { DEFAULT_EDGE_PROGRAM_CLASSES, DEFAULT_NODE_PROGRAM_CLASSES } from "sigma/settings";
 import type { NodeDisplayData, RenderParams } from "sigma/types";
 import { floatColor } from "sigma/utils";
@@ -418,19 +418,27 @@ export const drawSemanticaEdgeLabel: EdgeLabelDrawingFunction = (
   settings,
 ) => {
   const label = edgeData.label;
-  if (!label) {
+  const forceLabel = Boolean((edgeData as { forceLabel?: boolean }).forceLabel);
+  // Curved programs used to bypass this drawer; still gate on forceLabel so idle
+  // zoom never paints relationship text.
+  if (!label || !forceLabel) {
     return;
   }
 
-  const fontSize = settings.edgeLabelSize;
-  const font = `${settings.edgeLabelWeight} ${fontSize}px ${settings.edgeLabelFont}`;
-  const textColor = typeof settings.edgeLabelColor === "object" && "color" in settings.edgeLabelColor
-    ? settings.edgeLabelColor.color
-    : GRAPH_THEME.ui.text.body;
   const chipTheme = GRAPH_THEME.labels.chip;
+  const fontSize = Math.max(settings.edgeLabelSize, chipTheme.fontSize);
+  const font = `${chipTheme.fontWeight} ${fontSize}px ${chipTheme.fontFamily}`;
   const side = (typeof (edgeData as { labelSide?: EdgeLabelSide }).labelSide === "number"
     ? (edgeData as { labelSide?: EdgeLabelSide }).labelSide
     : 1) as EdgeLabelSide;
+  const edgeExtras = edgeData as {
+    labelSourceId?: string;
+    labelTargetId?: string;
+    curvature?: number;
+  };
+  const labelSourceId = edgeExtras.labelSourceId;
+  const labelTargetId = edgeExtras.labelTargetId;
+  const curvature = typeof edgeExtras.curvature === "number" ? edgeExtras.curvature : 0;
 
   context.save();
   context.font = font;
@@ -445,7 +453,10 @@ export const drawSemanticaEdgeLabel: EdgeLabelDrawingFunction = (
     side,
     labelWidth: width,
     labelHeight: height,
-    minGap: Math.max(10, edgeData.size + 8),
+    minGap: Math.max(14, edgeData.size + 10),
+    sourceId: labelSourceId,
+    targetId: labelTargetId,
+    curvature,
   });
 
   let angle = placement.angle;
@@ -468,7 +479,7 @@ export const drawSemanticaEdgeLabel: EdgeLabelDrawingFunction = (
   drawRoundedRect(context, -width / 2, -height / 2, width, height, chipTheme.radius);
   context.stroke();
 
-  context.fillStyle = textColor || chipTheme.textColor;
+  context.fillStyle = chipTheme.textColor;
   context.fillText(label, 0, 0);
   context.restore();
 };
@@ -478,8 +489,15 @@ export const SEMANTICA_NODE_PROGRAM_CLASSES = {
   circle: EntityTokenNodeProgram,
 };
 
+// Bidirectional edges render as curve/curvedArrow; those programs ship their own
+// plain-text drawLabel and ignore settings.defaultDrawEdgeLabel — wire ours in.
 export const SEMANTICA_EDGE_PROGRAM_CLASSES = {
   ...DEFAULT_EDGE_PROGRAM_CLASSES,
-  curve: EdgeCurveProgram,
-  curvedArrow: EdgeCurvedArrowProgram,
+  curve: createEdgeCurveProgram({
+    drawLabel: drawSemanticaEdgeLabel,
+  }),
+  curvedArrow: createEdgeCurveProgram({
+    drawLabel: drawSemanticaEdgeLabel,
+    arrowHead: DEFAULT_EDGE_ARROW_HEAD_PROGRAM_OPTIONS,
+  }),
 };
