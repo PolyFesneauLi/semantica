@@ -5,6 +5,7 @@ import { GRAPH_THEME, withAlpha } from "./graphTheme";
 import type { GraphSelectedNodeKind } from "./types";
 import { MarkdownContentViewer } from "./MarkdownContentViewer";
 import type { MarkdownApplyResult } from "./markdownResourceClient";
+import { formatLinkScore } from "./formatLinkScore";
 
 export type LinkPrediction = {
   target: string;
@@ -42,6 +43,8 @@ export interface GraphInspectorPanelProps {
   pathTargetId: string;
   onPathTargetChange: (value: string) => void;
   onTracePath: () => void;
+  isTracingPath?: boolean;
+  pathTraceError?: string;
   pathResult: PathResponse | null;
   onDownloadProvenance: (format: "json" | "markdown") => void;
   onFocusNode?: (nodeId: string) => void;
@@ -304,6 +307,8 @@ export function GraphInspectorPanel({
   pathTargetId,
   onPathTargetChange,
   onTracePath,
+  isTracingPath = false,
+  pathTraceError = "",
   pathResult,
   onDownloadProvenance,
   onFocusNode,
@@ -472,7 +477,16 @@ export function GraphInspectorPanel({
           placeholder="Target node ID"
           style={inputStyle}
         />
-        <button style={actionButtonStyle} onClick={onTracePath} disabled={!actionNodeId}>Trace Causal Path</button>
+        <button
+          style={{ ...actionButtonStyle, opacity: isTracingPath ? 0.7 : 1 }}
+          onClick={onTracePath}
+          disabled={!actionNodeId || isTracingPath}
+        >
+          {isTracingPath ? (
+            <Loader2 size={14} className="animate-spin" style={{ marginRight: 6 }} />
+          ) : null}
+          {isTracingPath ? "Tracing…" : "Trace Causal Path"}
+        </button>
 
         {pathResult?.path?.length ? (
           <>
@@ -486,8 +500,9 @@ export function GraphInspectorPanel({
             <PathDistanceIntelPanel result={pathResult} />
           </>
         ) : (
-          <div style={emptyTextStyle}>
-            Choose a target or click a candidate prediction to prepare a path trace.
+          <div style={pathTraceError ? { ...emptyTextStyle, color: "#f0a8a8" } : emptyTextStyle}>
+            {pathTraceError
+              || "Candidate links are predicted, not existing edges. Trace looks for a path already in the graph. Choose a target or click a candidate, then Trace."}
           </div>
         )}
       </section>
@@ -519,7 +534,7 @@ export function GraphInspectorPanel({
                         border: `1px solid ${GRAPH_THEME.ui.control.activeBorder}`,
                         color: GRAPH_THEME.ui.timeline.playhead,
                       }}>
-                        {(prediction.score * 100).toFixed(1)}%
+                        {(formatLinkScore(prediction.score))}
                       </div>
                     </div>
                   </div>

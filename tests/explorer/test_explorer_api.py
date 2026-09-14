@@ -5,7 +5,6 @@ import json
 from pathlib import Path
 import uuid
 
-import networkx as nx
 import pytest
 
 from semantica.context.context_graph import ContextGraph
@@ -1051,11 +1050,10 @@ class TestGenericGraphFileLoading:
 # ---------------------------------------------------------------------------
 
 def _make_path_session() -> GraphSession:
-    """Return a GraphSession whose build_graph_dict yields an nx.DiGraph with A→B only.
+    """Return a GraphSession with A→B (and a slash-id edge) for path-route tests.
 
-    GraphSession wraps a ContextGraph (required by create_app), but we patch
-    build_graph_dict so PathFinder receives an actual NetworkX DiGraph — the
-    graph type the Explorer is designed to traverse for path queries.
+    Path routes build a NetworkX traversal graph via
+    ``GraphSession.build_path_traversal_graph``; no build_graph_dict patch.
     """
     cg = ContextGraph(advanced_analytics=False)
     cg.add_node("A", node_type="entity", content="Node A")
@@ -1065,17 +1063,7 @@ def _make_path_session() -> GraphSession:
     cg.add_edge("A", "B", edge_type="connects")
     cg.add_edge("gene/protein:6164", "disease/term:1", edge_type="connects")
 
-    session = GraphSession(cg)
-
-    # Patch build_graph_dict to return the directed NetworkX graph that
-    # PathFinder needs.  The ContextGraph dict format is not traversable by
-    # PathFinder; this mimics how a KG-backed session would expose the graph.
-    digraph = nx.DiGraph()
-    digraph.add_edge("A", "B")
-    digraph.add_edge("gene/protein:6164", "disease/term:1")
-    session.build_graph_dict = lambda node_ids=None: digraph  # type: ignore[method-assign]
-
-    return session
+    return GraphSession(cg)
 
 
 @pytest.fixture

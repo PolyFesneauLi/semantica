@@ -1453,6 +1453,8 @@ export function GraphWorkspace({ externalFocusNodeId, externalFocusToken, onDirt
   const [predictions, setPredictions] = useState<LinkPrediction[]>([]);
   const [pathTargetId, setPathTargetId] = useState("");
   const [pathResult, setPathResult] = useState<PathResponse | null>(null);
+  const [pathTraceError, setPathTraceError] = useState("");
+  const [isTracingPath, setIsTracingPath] = useState(false);
   const [activeNodeCount, setActiveNodeCount] = useState<number | null>(null);
   const [temporalBounds, setTemporalBounds] = useState<TemporalBounds | null>(null);
   const [scrubberTime, setScrubberTime] = useState<Date | null>(null);
@@ -1934,6 +1936,7 @@ export function GraphWorkspace({ externalFocusNodeId, externalFocusToken, onDirt
       setSelectedNodeId("");
       setSelectedEdgeId("");
       setPathResult(null);
+      setPathTraceError("");
       setSearchResults([]);
       setSearchError("");
       commandOverlay.collapseIfIdle();
@@ -1950,6 +1953,7 @@ export function GraphWorkspace({ externalFocusNodeId, externalFocusToken, onDirt
     setSelectedNodeId(nextSelectedNodeId);
     setSelectedEdgeId("");
     setPathResult(null);
+    setPathTraceError("");
     setSearchResults([]);
     setSearchError("");
     commandOverlay.collapseIfIdle();
@@ -2045,18 +2049,44 @@ export function GraphWorkspace({ externalFocusNodeId, externalFocusToken, onDirt
   }, [inspectableNodeId, predictionType]);
 
   const handleTracePath = useCallback(async () => {
-    if (!inspectableNodeId || !pathTargetId.trim()) return;
+    const source = inspectableNodeId;
+    const target = pathTargetId.trim();
+    if (!source || !target) {
+      setPathTraceError("Choose a target node ID, or click a candidate link first.");
+      return;
+    }
+    if (source === target) {
+      setPathTraceError("Source and target are the same node.");
+      return;
+    }
+    setIsTracingPath(true);
+    setPathTraceError("");
+    setPathResult(null);
     try {
-      const pathParams = new URLSearchParams({
-        source: inspectableNodeId,
-        target: pathTargetId.trim(),
-        algorithm: "dijkstra",
-      });
-      const response = await fetch(
-        `/api/graph/path?${pathParams.toString()}`
-      );
+      const fetchPath = async (directed: boolean) => {
+        const pathParams = new URLSearchParams({
+          source,
+          target,
+          algorithm: "dijkstra",
+          directed: directed ? "true" : "false",
+        });
+        return fetch(`/api/graph/path?${pathParams.toString()}`);
+      };
+      let response = await fetchPath(true);
+      if (response.status === 404) {
+        response = await fetchPath(false);
+      }
       if (!response.ok) {
-        throw new Error(`Path lookup failed with status ${response.status}`);
+        let detail = `Path lookup failed with status ${response.status}`;
+        try {
+          const payload = await response.json() as { detail?: unknown };
+          if (typeof payload.detail === "string" && payload.detail.trim()) {
+            detail = payload.detail;
+          }
+        } catch {
+          /* keep status fallback */
+        }
+        throw new Error(detail);
       }
       const data: PathResponse = await response.json();
       setPathResult(data);
@@ -2065,10 +2095,20 @@ export function GraphWorkspace({ externalFocusNodeId, externalFocusToken, onDirt
         if (graph.hasNode(lastStep)) {
           sceneRef.current?.focusNode(lastStep);
         }
+      } else {
+        setPathTraceError(`No existing path from ${source} to ${target}. Candidate links are predicted, not current edges.`);
       }
     } catch (pathError) {
       console.error("[GraphWorkspace] path trace failed", pathError);
       setPathResult(null);
+      const message = pathError instanceof Error ? pathError.message : "Path trace failed";
+      setPathTraceError(
+        /no path found/i.test(message)
+          ? `${message} Candidate links are predicted next-hops, not guaranteed graph paths.`
+          : message,
+      );
+    } finally {
+      setIsTracingPath(false);
     }
   }, [inspectableNodeId, pathTargetId]);
 
@@ -3642,8 +3682,13 @@ export function GraphWorkspace({ externalFocusNodeId, externalFocusToken, onDirt
                       onRunPredictions={() => void handleRunPredictions()}
                       isRunningPredictions={isRunningPredictions}
                       pathTargetId={pathTargetId}
-                      onPathTargetChange={setPathTargetId}
+                      onPathTargetChange={(value) => {
+                        setPathTargetId(value);
+                        setPathTraceError("");
+                      }}
                       onTracePath={() => void handleTracePath()}
+                      isTracingPath={isTracingPath}
+                      pathTraceError={pathTraceError}
                       pathResult={pathResult}
                       onDownloadProvenance={(format) => void handleDownloadProvenance(format)}
                       onFocusNode={focusNode}
