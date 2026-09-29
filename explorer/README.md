@@ -129,18 +129,87 @@ This writes the compiled assets to `../semantica/static/`. The Python server the
 
 ---
 
-## Workspaces
+## Workspaces (app rail)
 
-| Workspace | What you can do |
+The left rail is the primary navigation: **SKE** (welcome) then six workspaces in order — **Knowledge Explorer**, **Analyze**, **Decisions**, **Enrich**, **Manage**, **Ontology Hub**. Selecting a rail button switches the workspace; it does not reload the graph session.
+
+### Session input (shared)
+
+All workspaces share one session graph loaded at process start:
+
+```bash
+semantica-explorer --graph my_graph.json
+```
+
+**Format:** ContextGraph JSON — an object with `nodes` and `edges` arrays. Each node has `id`, `type`, and `properties`; each edge has source, target, and type. Per-workspace rows below describe *operator* input on top of that session.
+
+### SKE
+
+| | |
 | --- | --- |
-| **Knowledge Graph** | Live Sigma.js canvas · ForceAtlas2 layout · Ego Mode · semantic distance heatmap · path highlighting |
-| **Timeline** | Temporal event scrubber — watch the graph evolve across time |
-| **Decisions** | Browse causal chains behind every recorded decision with outcome badges and confidence scores |
-| **Registry** | Live audit log of every graph mutation (add-node, add-edge, delete, update) |
-| **Entity Resolution** | Review and merge duplicate entities with blocking + semantic dedup |
-| **KG Overview** | Aggregate stats, community breakdown, centrality heatmap |
-| **Ontology Hub** | SHACL Studio · visual drag-and-drop editor · cross-ontology alignments · SKOS browser |
-| **Lineage** | W3C PROV-O provenance visualization for any entity |
+| **How to use** | Click the **SKE** brand pill to open the welcome landing (launchers into workspaces; live `GET /api/graph/stats` metrics). |
+| **Input** | None (navigation only). |
+| **Output** | Welcome screen; node/edge counts when the backend is online. |
+
+### Knowledge Explorer
+
+Tabs: **Semantica Explorer** (graph), optional **Memories** (only when `agent_memory` is provided to `create_app`), **Vocabulary Browser**.
+
+| Tab | How to use | Input (content / format) | Output (content / format) |
+| --- | --- | --- | --- |
+| **Semantica Explorer** | Pan/zoom the Sigma canvas, search, scrub the timeline, select nodes, optionally edit a node's Markdown | Session graph (see above); canvas interaction; Markdown draft with YAML frontmatter when editing | Live graph scene, node inspector, applied Markdown document with YAML frontmatter |
+| **Memories** | Browse/edit canonical AgentMemory documents | Shown only when `agent_memory` is supplied; Markdown apply via `/api/markdown` | Memory list + Markdown documents (not always visible) |
+| **Vocabulary Browser** | Browse SKOS schemes/concepts; drop a vocabulary file to import | SKOS RDF file: `.ttl`, `.rdf`, or `.owl` | Scheme/concept hierarchy; import counts (concepts + links) |
+
+### Analyze
+
+Tabs: **Reasoning Playground**, **SPARQL Querying**.
+
+| Tab | How to use | Input (content / format) | Output (content / format) |
+| --- | --- | --- | --- |
+| **Reasoning Playground** | Paste facts and rules, optionally apply inferences to the graph, Run | Newline-separated facts `predicate(Subject, Object)`; rules `IF ... AND ... THEN ...` | Inferred fact strings; `rules_fired`; when apply-to-graph is on: `added_edges` + `mutated` |
+| **SPARQL Querying** | Edit a SPARQL 1.1 query and Run | Read-only queries whose first verb is `SELECT`, `ASK`, `CONSTRUCT`, or `DESCRIBE` (Update verbs `INSERT`/`DELETE`/`DROP`/`LOAD`/`CLEAR`/`CREATE`/`COPY`/`MOVE`/`ADD` are rejected) | Table JSON `{columns, rows, total}` (optional truncation flag); errors include message + optional line |
+
+### Decisions
+
+| | |
+| --- | --- |
+| **How to use** | Browse `type: decision` nodes; filter by category; open a decision for chain and precedents. |
+| **Input** | Optional category filter; selected `decision_id`. |
+| **Output** | List fields: `decision_id`, `category`, `scenario`, `reasoning`, `outcome`, `confidence` (number), `timestamp` (ISO-8601 or null). Causal chain steps: `{id, relationship, content, type}`. Precedent matches share the same decision shape. |
+
+### Enrich
+
+Tabs: **Import and Export**, **Diff and Merge**, **Entity Resolution**, **Registry**.
+
+| Tab | How to use | Input (content / format) | Output (content / format) |
+| --- | --- | --- | --- |
+| **Import and Export** | Drop one file to import, or choose export format and download | Import: `.json` or `.csv` (UTF-8, ≤50 MB). JSON object with `nodes`/`entities` + `edges`/`relationships`, or a node/edge array. CSV headered rows as nodes (`id`/`node_id`/`:ID`) or edges (`source`/`target` or `:START_ID`/`:END_ID`). Export UI: `json` or `csv` | Import: `{nodes_imported, edges_imported}`. Export: `semantica_export.json` (nodes/edges object) or `.csv` table |
+| **Diff and Merge** | Enter primary + duplicate node ids and merge | Two node id strings (primary keep, duplicate remove). Side-by-side fields are a **sample preview**, not a live field-diff API | Surviving id + redirected edge count |
+| **Entity Resolution** | Scan for duplicates; merge flagged pairs | Threshold scan over session nodes | Pairs `{entity_a, entity_b, score}` (0–1); merge uses the same contract as Diff and Merge |
+| **Registry** | Read the chronological mutation audit for this browser session | Client-side registry events (import/export/merge/…) | Chronological audit list |
+
+> **API note:** `POST /api/export` also accepts Turtle, N-Triples, N3, RDF/XML, JSON-LD, and GraphML. The Enrich UI dropdown is limited to `json` and `csv`.
+
+### Manage
+
+Tabs: **PROV-O Lineage**, **KG Overview**, **Ontology Summary**.
+
+| Tab | How to use | Input (content / format) | Output (content / format) |
+| --- | --- | --- | --- |
+| **PROV-O Lineage** | Look up a node id; download a provenance report | Node id string | Diagram in Agent / Activity / Entity lanes; download `json` (`application/json`) or `markdown` (`text/markdown`) |
+| **KG Overview** | Refresh aggregate stats | Session graph | Node/edge counts, type distributions, top connected nodes |
+| **Ontology Summary** | Skim ontology summary; jump to Vocabulary Browser | Session / ontology summary payloads | Summary UI; can open Knowledge Explorer → Vocabulary |
+
+### Ontology Hub
+
+Sub-tabs: **Registry**, **Editor**, **Versions**, **Alignments**, **Health**, **SHACL**.
+
+| | |
+| --- | --- |
+| **How to use** | Load ontologies (URL, file, or create), edit entities, compare versions, manage alignments, review health issues, author SHACL in Turtle. |
+| **Input** | Ontology files: `.ttl`, `.rdf`, `.owl`, `.nt`, `.jsonld`, `.json`, `.xml`, `.n3` (or URL / create-from-scratch). SHACL Studio: shapes as Turtle. |
+| **Output** | Registry entries; visual editor; version compare; alignment records; health issue list (deep-link into Editor); SHACL Turtle + validation results. |
 
 ---
 

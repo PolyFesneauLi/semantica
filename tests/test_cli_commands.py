@@ -609,12 +609,144 @@ class TestNormalize:
 
 
 class TestExtract:
+    @pytest.fixture(autouse=True)
+    def _clear_extract_env(self, monkeypatch):
+        """Keep unit tests independent of the developer's .env defaults."""
+        monkeypatch.setattr(cli_module, "_load_dotenv_files", lambda: None)
+        for key in (
+            "SEMANTICA_EXTRACT_INPUT",
+            "SEMANTICA_EXTRACT_MODE",
+            "SEMANTICA_EXTRACT_METHOD",
+            "SEMANTICA_EXTRACT_PROVIDER",
+            "SEMANTICA_EXTRACT_MODEL",
+            "SEMANTICA_EXTRACT_CONFIDENCE",
+            "SEMANTICA_EXTRACT_FORMAT",
+            "SEMANTICA_EXTRACT_OUTPUT",
+            "SEMANTICA_EXTRACT_GRAPH_OUTPUT",
+            "SEMANTICA_OUTPUT_DIR",
+        ):
+            monkeypatch.delenv(key, raising=False)
+
     def test_help_shows_mode_method_flags(self, runner):
         result = runner.invoke(cli_module.main, ["extract", "--help"])
         _ok(result)
-        for flag in ["--mode", "--method", "--model", "--confidence",
-                     "--temporal", "--format", "--output"]:
+        for flag in ["--mode", "--method", "--provider", "--model", "--confidence",
+                     "--temporal", "--format", "--output", "--graph-output"]:
             assert flag in result.output
+
+    def test_llm_requires_provider(self, runner):
+        result = runner.invoke(
+            cli_module.main,
+            ["extract", "Alice works at Acme.", "--method", "llm", "--mode", "ner"],
+        )
+        assert result.exit_code != 0
+        assert "provider" in result.output.lower()
+
+    def test_env_defaults_allow_bare_extract(self, runner, monkeypatch, tmp_path):
+        from semantica.semantic_extract.types import Entity, Relation
+
+        sample = tmp_path / "sample.txt"
+        sample.write_text("Alice works at Acme.", encoding="utf-8")
+        graph_path = tmp_path / "g.json"
+        alice = Entity(text="Alice", label="PERSON", start_char=0, end_char=5, confidence=0.9)
+        acme = Entity(text="Acme", label="ORG", start_char=15, end_char=19, confidence=0.9)
+        rel = Relation(subject=alice, predicate="works_at", object=acme, confidence=0.9)
+        fake_ext = _fake_module(
+            NERExtractor=lambda **kw: MagicMock(extract=lambda text, **kw2: [alice, acme]),
+            RelationExtractor=lambda **kw: MagicMock(
+                extract=lambda text, entities=None, **kw2: [rel]
+            ),
+            TripletExtractor=lambda **kw: MagicMock(extract=lambda text, **kw2: []),
+            EventDetector=lambda **kw: MagicMock(extract=lambda text, **kw2: []),
+        )
+        monkeypatch.setitem(
+            __import__("sys").modules, "semantica.semantic_extract", fake_ext
+        )
+        monkeypatch.setenv("SEMANTICA_EXTRACT_INPUT", str(sample))
+        monkeypatch.setenv("SEMANTICA_EXTRACT_METHOD", "pattern")
+        monkeypatch.setenv("SEMANTICA_EXTRACT_MODE", "all")
+        monkeypatch.setenv("SEMANTICA_EXTRACT_GRAPH_OUTPUT", str(graph_path))
+        result = runner.invoke(cli_module.main, ["--quiet", "extract"])
+        _ok(result)
+        assert graph_path.is_file()
+
+    def test_auto_output_layout_mirrors_input(self, runner, monkeypatch, tmp_path):
+        from semantica.semantic_extract.types import Entity, Relation
+
+        monkeypatch.chdir(tmp_path)
+        sample = tmp_path / "input" / "odyssey" / "Synopsis_Odyssey_Title.txt"
+        sample.parent.mkdir(parents=True)
+        sample.write_text("Odysseus returns to Ithaca.", encoding="utf-8")
+        alice = Entity(text="Odysseus", label="PERSON", start_char=0, end_char=8, confidence=0.9)
+        ithaca = Entity(text="Ithaca", label="LOC", start_char=20, end_char=26, confidence=0.9)
+        rel = Relation(subject=alice, predicate="returns_to", object=ithaca, confidence=0.9)
+        fake_ext = _fake_module(
+            NERExtractor=lambda **kw: MagicMock(extract=lambda text, **kw2: [alice, ithaca]),
+            RelationExtractor=lambda **kw: MagicMock(
+                extract=lambda text, entities=None, **kw2: [rel]
+            ),
+            TripletExtractor=lambda **kw: MagicMock(extract=lambda text, **kw2: []),
+            EventDetector=lambda **kw: MagicMock(extract=lambda text, **kw2: []),
+        )
+        monkeypatch.setitem(
+            __import__("sys").modules, "semantica.semantic_extract", fake_ext
+        )
+        result = runner.invoke(
+            cli_module.main,
+            [
+                "--quiet",
+                "extract",
+                str(sample),
+                "--mode",
+                "all",
+                "--method",
+                "pattern",
+            ],
+        )
+        _ok(result)
+        extract_path = tmp_path / "output" / "extract" / "odyssey" / "Synopsis_Odyssey_Title_extract.json"
+        graph_path = tmp_path / "output" / "graph" / "odyssey" / "Synopsis_Odyssey_Title_graph.json"
+        assert extract_path.is_file()
+        assert graph_path.is_file()
+        data = json.loads(graph_path.read_text(encoding="utf-8"))
+        assert len(data.get("nodes", [])) >= 2
+
+    def test_graph_output_from_relations(self, runner, monkeypatch, tmp_path):
+        from semantica.semantic_extract.types import Entity, Relation
+
+        alice = Entity(text="Alice", label="PERSON", start_char=0, end_char=5, confidence=0.9)
+        acme = Entity(text="Acme", label="ORG", start_char=15, end_char=19, confidence=0.9)
+        rel = Relation(subject=alice, predicate="works_at", object=acme, confidence=0.9)
+
+        fake_ext = _fake_module(
+            NERExtractor=lambda **kw: MagicMock(extract=lambda text, **kw2: [alice, acme]),
+            RelationExtractor=lambda **kw: MagicMock(extract=lambda text, entities=None, **kw2: [rel]),
+            TripletExtractor=lambda **kw: MagicMock(extract=lambda text, **kw2: []),
+            EventDetector=lambda **kw: MagicMock(extract=lambda text, **kw2: []),
+        )
+        monkeypatch.setitem(
+            __import__("sys").modules, "semantica.semantic_extract", fake_ext
+        )
+        graph_path = tmp_path / "g.json"
+        result = runner.invoke(
+            cli_module.main,
+            [
+                "--quiet",
+                "extract",
+                "Alice works at Acme.",
+                "--mode",
+                "all",
+                "--method",
+                "pattern",
+                "--graph-output",
+                str(graph_path),
+            ],
+        )
+        _ok(result)
+        assert graph_path.is_file()
+        data = json.loads(graph_path.read_text(encoding="utf-8"))
+        assert len(data.get("nodes", [])) >= 2
+        assert len(data.get("edges", [])) >= 1
 
     def test_dry_run_not_needed_extract_is_read_only(self, runner, monkeypatch):
         _ner_result = [MagicMock(text="Alice", label="PER", confidence=0.9,

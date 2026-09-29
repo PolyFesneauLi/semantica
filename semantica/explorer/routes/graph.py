@@ -212,14 +212,24 @@ async def _find_path_impl(
     if path_finder is None:
         raise HTTPException(status_code=503, detail="PathFinder not available; KG extras may not be installed.")
 
-    graph_dict = await asyncio.to_thread(session.build_graph_dict)
+    # PathFinder needs NetworkX (or ContextGraph neighbors). The entities/
+    # relationships dict from build_graph_dict is not traversable and always
+    # produced empty/404 paths in production Explorer sessions.
+    traversal_graph = await asyncio.to_thread(
+        session.build_path_traversal_graph, directed
+    )
     path_fn = (
         path_finder.dijkstra_shortest_path
         if algorithm == _PathAlgorithm.dijkstra
         else path_finder.bfs_shortest_path
     )
     try:
-        result = await asyncio.to_thread(path_fn, graph_dict, source, target, directed=directed)
+        # directed already baked into the NetworkX graph type; keep the flag
+        # for PathFinder's directed=False undirected-view branch as a no-op
+        # when we already built an undirected Graph.
+        result = await asyncio.to_thread(
+            path_fn, traversal_graph, source, target, directed=directed
+        )
     except Exception as exc:
         raise HTTPException(status_code=404, detail=f"No path found from '{source}' to '{target}': {exc}")
 
@@ -472,8 +482,10 @@ async def distance_matrix(
                         if body.metric == "weighted"
                         else path_finder.bfs_shortest_path
                     )
-                    graph_dict = await asyncio.to_thread(session.build_graph_dict)
-                    result = await asyncio.to_thread(path_fn, graph_dict, src, tgt)
+                    traversal_graph = await asyncio.to_thread(
+                        session.build_path_traversal_graph, True
+                    )
+                    result = await asyncio.to_thread(path_fn, traversal_graph, src, tgt)
                     path_nodes = result.get("path", []) if isinstance(result, dict) else (result or [])
                     if path_nodes:
                         val = (

@@ -759,6 +759,46 @@ class GraphSession:
             ],
         }
 
+    def build_path_traversal_graph(self, directed: bool = True, node_ids: Optional[list] = None):
+        """Build a NetworkX graph PathFinder can traverse.
+
+        ``build_graph_dict`` returns an entities/relationships dict that
+        PathFinder cannot walk (no ``neighbors`` / ``has_node``). Path and
+        distance-matrix routes MUST use this NetworkX view instead.
+        """
+        import networkx as nx
+
+        nodes, _ = self.get_nodes(skip=0, limit=999_999)
+        edges, _ = self.get_edges(skip=0, limit=999_999)
+
+        if node_ids:
+            id_set = set(node_ids)
+            nodes = [node for node in nodes if node.get("id") in id_set]
+            edges = [
+                edge
+                for edge in edges
+                if edge.get("source") in id_set and edge.get("target") in id_set
+            ]
+
+        graph = nx.DiGraph() if directed else nx.Graph()
+        for node in nodes:
+            node_id = node.get("id")
+            if node_id:
+                graph.add_node(node_id)
+        for edge in edges:
+            source = edge.get("source")
+            target = edge.get("target")
+            if not source or not target:
+                continue
+            graph.add_edge(
+                source,
+                target,
+                weight=float(edge.get("weight") or 1.0),
+                type=edge.get("type", "related_to"),
+                id=edge.get("id"),
+            )
+        return graph
+
     def resolve_path_edge_ids(self, path_nodes: List[str]) -> List[str]:
         if len(path_nodes) < 2:
             return []

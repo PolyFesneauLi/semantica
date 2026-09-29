@@ -1,11 +1,12 @@
-import EdgeCurveProgram, { EdgeCurvedArrowProgram } from "@sigma/edge-curve";
-import { NodeProgram, type ProgramInfo } from "sigma/rendering";
+import { createEdgeCurveProgram } from "@sigma/edge-curve";
+import { NodeProgram, type ProgramInfo, DEFAULT_EDGE_ARROW_HEAD_PROGRAM_OPTIONS } from "sigma/rendering";
 import { DEFAULT_EDGE_PROGRAM_CLASSES, DEFAULT_NODE_PROGRAM_CLASSES } from "sigma/settings";
 import type { NodeDisplayData, RenderParams } from "sigma/types";
 import { floatColor } from "sigma/utils";
-import type { NodeHoverDrawingFunction, NodeLabelDrawingFunction } from "sigma/rendering";
+import type { NodeHoverDrawingFunction, NodeLabelDrawingFunction, EdgeLabelDrawingFunction } from "sigma/rendering";
 
 import { GRAPH_THEME, type GraphEntityShapeVariant, withAlpha } from "./graphTheme";
+import { resolveBidirectionalLabelPlacement, type EdgeLabelSide } from "./edgeHoverLabels";
 
 type SemanticaNodeDrawData = {
   x: number;
@@ -409,13 +410,94 @@ export const drawSemanticaNodeHover: NodeHoverDrawingFunction = (context, rawDat
   context.restore();
 };
 
+export const drawSemanticaEdgeLabel: EdgeLabelDrawingFunction = (
+  context,
+  edgeData,
+  sourceData,
+  targetData,
+  settings,
+) => {
+  const label = edgeData.label;
+  const forceLabel = Boolean((edgeData as { forceLabel?: boolean }).forceLabel);
+  // Curved programs used to bypass this drawer; still gate on forceLabel so idle
+  // zoom never paints relationship text.
+  if (!label || !forceLabel) {
+    return;
+  }
+
+  const chipTheme = GRAPH_THEME.labels.chip;
+  const fontSize = Math.max(settings.edgeLabelSize, chipTheme.fontSize);
+  const font = `${chipTheme.fontWeight} ${fontSize}px ${chipTheme.fontFamily}`;
+  const side = (typeof (edgeData as { labelSide?: EdgeLabelSide }).labelSide === "number"
+    ? (edgeData as { labelSide?: EdgeLabelSide }).labelSide
+    : 1) as EdgeLabelSide;
+  const edgeExtras = edgeData as {
+    labelSourceId?: string;
+    labelTargetId?: string;
+    curvature?: number;
+  };
+  const labelSourceId = edgeExtras.labelSourceId;
+  const labelTargetId = edgeExtras.labelTargetId;
+  const curvature = typeof edgeExtras.curvature === "number" ? edgeExtras.curvature : 0;
+
+  context.save();
+  context.font = font;
+  context.textBaseline = "middle";
+  context.textAlign = "center";
+  const metrics = context.measureText(label);
+  const width = metrics.width + chipTheme.paddingX * 2;
+  const height = fontSize + chipTheme.paddingY * 2;
+  const placement = resolveBidirectionalLabelPlacement({
+    source: { x: sourceData.x, y: sourceData.y },
+    target: { x: targetData.x, y: targetData.y },
+    side,
+    labelWidth: width,
+    labelHeight: height,
+    minGap: Math.max(14, edgeData.size + 10),
+    sourceId: labelSourceId,
+    targetId: labelTargetId,
+    curvature,
+  });
+
+  let angle = placement.angle;
+  if (angle > Math.PI / 2 || angle < -Math.PI / 2) {
+    angle += Math.PI;
+  }
+
+  context.translate(placement.x, placement.y);
+  context.rotate(angle);
+
+  context.shadowColor = withAlpha(chipTheme.shadowColor, chipTheme.shadowAlpha);
+  context.shadowBlur = chipTheme.shadowBlur;
+  context.fillStyle = chipTheme.background;
+  drawRoundedRect(context, -width / 2, -height / 2, width, height, chipTheme.radius);
+  context.fill();
+
+  context.shadowBlur = 0;
+  context.strokeStyle = withAlpha(edgeData.color || chipTheme.borderColor, chipTheme.borderAlpha);
+  context.lineWidth = 1;
+  drawRoundedRect(context, -width / 2, -height / 2, width, height, chipTheme.radius);
+  context.stroke();
+
+  context.fillStyle = chipTheme.textColor;
+  context.fillText(label, 0, 0);
+  context.restore();
+};
+
 export const SEMANTICA_NODE_PROGRAM_CLASSES = {
   ...DEFAULT_NODE_PROGRAM_CLASSES,
   circle: EntityTokenNodeProgram,
 };
 
+// Bidirectional edges render as curve/curvedArrow; those programs ship their own
+// plain-text drawLabel and ignore settings.defaultDrawEdgeLabel — wire ours in.
 export const SEMANTICA_EDGE_PROGRAM_CLASSES = {
   ...DEFAULT_EDGE_PROGRAM_CLASSES,
-  curve: EdgeCurveProgram,
-  curvedArrow: EdgeCurvedArrowProgram,
+  curve: createEdgeCurveProgram({
+    drawLabel: drawSemanticaEdgeLabel,
+  }),
+  curvedArrow: createEdgeCurveProgram({
+    drawLabel: drawSemanticaEdgeLabel,
+    arrowHead: DEFAULT_EDGE_ARROW_HEAD_PROGRAM_OPTIONS,
+  }),
 };

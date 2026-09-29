@@ -4,7 +4,6 @@ import {
   ArrowRight,
   BrainCircuit,
   Database,
-  FileSearch,
   GitBranchPlus,
   GitMerge,
   Network,
@@ -12,13 +11,13 @@ import {
   Route,
   Scale,
   Search,
-  Settings2,
   ShieldCheck,
   type LucideIcon,
 } from 'lucide-react';
 import { ErrorBoundary } from './ErrorBoundary';
 import { ExploreWorkspaceTabs, type ExploreView } from './ExploreWorkspaceTabs';
 import { fetchAgentMemoryAvailability } from './explorerCapabilities';
+import { NAV_ITEMS, RAIL_BRAND_LABEL, type WorkspaceId } from './navItems';
 import { hasOntologyUrlState } from './workspaces/OntologyWorkspace/ontologyUrlState';
 
 const DecisionWorkspace = lazy(() => import('./workspaces/DecisionWorkspace/DecisionWorkspace').then((module) => ({ default: module.DecisionWorkspace })));
@@ -36,17 +35,9 @@ const KGOverviewTab = lazy(() => import('./workspaces/ManageWorkspace/KGOverview
 const OntologySummaryTab = lazy(() => import('./workspaces/ManageWorkspace/OntologySummaryTab').then((module) => ({ default: module.OntologySummaryTab })));
 const OntologyWorkspace = lazy(() => import('./workspaces/OntologyWorkspace').then((module) => ({ default: module.OntologyWorkspace })));
 
-type WorkspaceId = 'welcome' | 'explore' | 'analyze' | 'decisions' | 'enrich' | 'manage' | 'ontology-hub';
 type AnalyzeView = 'sparql' | 'reasoning';
 type EnrichView = 'import' | 'merge' | 'registry' | 'resolve';
 type ManageView = 'lineage' | 'kg-overview' | 'ontology';
-
-type NavItem = {
-  id: WorkspaceId;
-  label: string;
-  hint: string;
-  icon: LucideIcon;
-};
 
 type LandingMetric = {
   label: string;
@@ -86,15 +77,6 @@ const PREVIEW_DOTS = Array.from({ length: 42 }, (_, i) => ({
   r: 2 + (i % 3),
   fill: (['#56d364', '#58a6ff', '#f2b66d', '#ff9daf'] as const)[i % 4],
 }));
-
-const navItems: NavItem[] = [
-  { id: 'explore', label: 'Knowledge Explorer', hint: 'Graph and vocabulary browsing', icon: Database },
-  { id: 'analyze', label: 'Analyze', hint: 'Query and inspect the dataset', icon: FileSearch },
-  { id: 'decisions', label: 'Decisions', hint: 'Decision chains and precedent review', icon: Scale },
-  { id: 'enrich', label: 'Enrich', hint: 'Import, export, and merge workflows', icon: GitBranchPlus },
-  { id: 'manage', label: 'Manage', hint: 'Lineage and governance tooling', icon: Settings2 },
-  { id: 'ontology-hub', label: 'Ontology Hub', hint: 'Schema governance, registry, and vocabulary management', icon: GitMerge },
-];
 
 function readInitialWorkspace(): WorkspaceId {
   return hasOntologyUrlState() ? 'ontology-hub' : 'welcome';
@@ -1848,7 +1830,7 @@ export default function App() {
     if (activeWorkspace === 'explore') {
       return (
         <WorkspaceShell
-          title="Explore"
+          title="Knowledge Explorer"
           subtitle={exploreView === 'graph' ? undefined : exploreView === 'memories' ? "Browse and edit canonical AgentMemory documents." : "Browse the graph and switch views without leaving the workspace."}
           kicker={exploreView === 'graph' ? 'Graph Studio' : exploreView === 'memories' ? 'Memory Browser' : 'Vocabulary Browser'}
           compact
@@ -2013,8 +1995,8 @@ export default function App() {
       <style>{shellStyles}</style>
       <div className="app-shell">
         <aside className="app-rail">
-          <button className="brand-pill" title="Semantica Knowledge Explorer" onClick={() => switchWorkspace('welcome')} style={{ cursor: 'pointer', border: '1px solid rgba(127,208,255,0.18)' }}>SKE</button>
-          {navItems.map(({ id, label, hint, icon: Icon }) => (
+          <button className="brand-pill" title="Semantica Knowledge Explorer" onClick={() => switchWorkspace('welcome')} style={{ cursor: 'pointer', border: '1px solid rgba(127,208,255,0.18)' }}>{RAIL_BRAND_LABEL}</button>
+          {NAV_ITEMS.map(({ id, label, hint, icon: Icon }) => (
             <button
               key={id}
               className="nav-button"

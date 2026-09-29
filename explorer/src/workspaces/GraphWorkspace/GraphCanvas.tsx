@@ -34,6 +34,7 @@ import {
   resolveNodeElementStyle,
   resolveNodeVisualState,
 } from "./graphSceneState";
+import { assignIncidentEdgeLabelSides } from "./edgeHoverLabels";
 import { buildGraphAnalyticsSnapshot, computeGraphAnalyticsBase } from "./graphAnalytics";
 import {
   collectVisibleNodeSamples,
@@ -48,6 +49,7 @@ import {
 import {
   SEMANTICA_EDGE_PROGRAM_CLASSES,
   SEMANTICA_NODE_PROGRAM_CLASSES,
+  drawSemanticaEdgeLabel,
   drawSemanticaNodeHover,
   drawSemanticaNodeLabel,
 } from "./sigmaNativeRendering";
@@ -163,9 +165,8 @@ const SIGMA_SETTINGS = {
   hideEdgesOnMove: true,
   enableEdgeEvents: true,
   // #1009: edge labels (the edge `type` — "works_for", "leads", ...) were
-  // hardcoded off, so edge text never rendered regardless of data. The
-  // labelDensity / labelGridCellSize / labelRenderedSizeThreshold settings
-  // below already throttle label density for both nodes and edges.
+  // hardcoded off, so edge text never rendered regardless of data. Idle
+  // edges keep label="" in the reducer so zoom does not leak plain labels.
   renderEdgeLabels: true,
   labelDensity: 0.7,
   labelGridCellSize: 140,
@@ -177,6 +178,7 @@ const SIGMA_SETTINGS = {
   edgeProgramClasses: SEMANTICA_EDGE_PROGRAM_CLASSES,
   defaultDrawNodeLabel: drawSemanticaNodeLabel,
   defaultDrawNodeHover: drawSemanticaNodeHover,
+  defaultDrawEdgeLabel: drawSemanticaEdgeLabel,
 };
 
 const DEBUG_GRAPH_RUNTIME = import.meta.env.DEV;
@@ -1075,6 +1077,22 @@ function applySceneState(
     edges?: string[];
   },
 ) {
+  const hoveredNodeId = reducerSceneStateRef.current.hoveredNodeId;
+  const hoverGraph = sigma.getGraph() as GraphSceneGraph;
+  const hoveredIncidentEdges: Array<{ id: string; source: string; target: string }> = [];
+  if (hoveredNodeId && hoverGraph.hasNode(hoveredNodeId)) {
+    hoverGraph.forEachEdge(hoveredNodeId, (edgeId, _attrs, source, target) => {
+      hoveredIncidentEdges.push({
+        id: String(edgeId),
+        source: String(source),
+        target: String(target),
+      });
+    });
+  }
+  const hoveredLabelSides = hoveredNodeId
+    ? assignIncidentEdgeLabelSides({ hoveredNodeId, edges: hoveredIncidentEdges })
+    : new Map<string, 1 | -1>();
+
   sigma.setSetting("nodeReducer", (node, data) => {
     const currentGraph = sigma.getGraph() as GraphSceneGraph;
     const currentState = reducerSceneStateRef.current;
@@ -1192,6 +1210,10 @@ function applySceneState(
         currentState.pathEdgeIds,
         currentState.highlightedIncidentEdgeIds,
       );
+    const isHoveredIncident = Boolean(
+      currentState.hoveredNodeId
+      && (String(source) === currentState.hoveredNodeId || String(target) === currentState.hoveredNodeId),
+    );
     const style = resolveEdgeElementStyle(
       GRAPH_THEME,
       currentState.zoomTier,
@@ -1202,6 +1224,7 @@ function applySceneState(
       currentState.viewMode,
       stableEdgeId,
       fullEdgeClass,
+      isHoveredIncident,
     );
     const distanceStyle = currentState.viewMode === "full"
       ? resolveDistanceEdgeStyle(
@@ -1227,7 +1250,13 @@ function applySceneState(
       // saw, so enabling renderEdgeLabels alone left edges blank.
       // Use || rather than ?? so that an empty-string edgeType (possible
       // when the API returns type: "") does not produce a blank label.
-      label: resolvedStyle.hidden ? undefined : String(attrs.edgeType || data.label || ""),
+      label: isHoveredIncident && !resolvedStyle.hidden
+        ? String(attrs.edgeType || data.label || "")
+        : "",
+      labelSide: isHoveredIncident ? hoveredLabelSides.get(stableEdgeId) ?? 1 : undefined,
+      labelSourceId: String(source),
+      labelTargetId: String(target),
+      forceLabel: isHoveredIncident && !resolvedStyle.hidden,
     };
   });
 

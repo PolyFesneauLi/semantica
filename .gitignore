@@ -67,6 +67,7 @@ MANIFEST
 # IDE
 .vscode/
 .idea/
+.cursor/
 *.swp
 *.swo
 *~
@@ -123,6 +124,9 @@ semantica/static/
 # Local graph explorer test datasets
 demo_out/
 .kiro/
+
+# Local extract / graph artifacts (mirrored from input/)
+output/
 
 # Worktrees
 .worktrees/
