@@ -294,6 +294,8 @@ else:
     # → "Decision blocked — confidence 0.62 below policy minimum 0.80."
 ```
 
+A `False` return from `check_compliance` means the rules were evaluated and the decision did not satisfy them. If the check itself cannot be executed — for example, a policy rule that cannot be compared against the decision's data — the call raises `ProcessingError` instead of returning `False`, so an evaluation failure is never reported as a compliance verdict. See the [Policy Engine guide](policy-engine) for the full contract.
+
 When a high-urgency situation requires bypassing the policy gate, record the exception with the approver identity and justification:
 
 ```python
@@ -314,7 +316,27 @@ print("Policy exception recorded:", exception_id)
 
 For multi-level approval workflows, use `DecisionRecorder.record_approval_chain()` with a graph database backend (for example Neo4j/FalkorDB). The in-memory `ContextGraph` examples used in this guide do not support approval-chain persistence via `execute_query()`.
 
+## Scoring Decisions Automatically on Record
 
+`DecisionRecorder` (and `AgentContext`, for its `graph_store` decision-tracking backend) can run `semantica.evals` evaluators automatically every time a decision is recorded, storing the result on `Decision.metadata`. This is opt-in — pass `evaluators`/`eval_config` at construction time, or leave them unset and `record_decision()` behaves exactly as before.
+
+```python
+from semantica.context import DecisionRecorder
+
+recorder = DecisionRecorder(
+    graph_store=graph,
+    evaluators=["decision_scores"],
+    eval_config={"decision_scores": {"policy_engine": engine, "policy_id": "cti_confidence_gate"}},
+)
+decision_id = recorder.record_decision(d, entities=[], source_documents=[])
+
+# d.metadata now also has:
+#   eval_score:   0.83   (mean score across configured evaluators)
+#   eval_passed:  False
+#   eval_details: {"decision_scores": {"score": ..., "passed": ..., "meta": {...}}}
+```
+
+If an evaluator raises, the failure is logged and the decision is still recorded without `eval_*` metadata — a broken evaluator never blocks decision persistence. `AgentContext(..., decision_tracking=True, evaluators=[...], eval_config={...})` threads the same configuration into the `DecisionRecorder` it constructs for the `graph_store` backend; the `context_graph` backend does not yet run evaluators.
 
 ## Generating a Decision Audit Report
 
@@ -607,6 +629,8 @@ d = Decision(
     decision_maker = "credit_model_v3",
 )
 
+# False = evaluated and non-compliant; if the check cannot run at
+# all, check_compliance raises ProcessingError (see policy-engine guide).
 if engine.check_compliance(d, "lending_policy_v3"):
     loan_id = context.record_decision(
         category=d.category, scenario=d.scenario,
